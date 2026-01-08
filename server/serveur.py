@@ -101,6 +101,30 @@ async def home_page(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
+@app.get("/app/create", response_class=HTMLResponse)
+async def create_agent_page(request: Request):
+    """
+    Page de création d'agent (formulaire non fonctionnel).
+    """
+    return templates.TemplateResponse("create_agent.html", {"request": request})
+
+
+@app.get("/app/agents", response_class=HTMLResponse)
+async def agents_list_page(request: Request):
+    """
+    Page de liste des agents (non fonctionnelle).
+    """
+    return templates.TemplateResponse("agents_list.html", {"request": request})
+
+
+@app.get("/app/info", response_class=HTMLResponse)
+async def server_info_page(request: Request):
+    """
+    Page d'informations sur le serveur.
+    """
+    return templates.TemplateResponse("server_info.html", {"request": request})
+
+
 @app.on_event("startup")
 async def start_ws_server():
     global ws_server
