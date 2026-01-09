@@ -57,7 +57,7 @@ def require_auth(creds: HTTPAuthorizationCredentials = Depends(security)) -> str
 # ------------------------------
 # WebSocket handler for agents
 # ------------------------------
-async def handler(websocket, path):
+async def handler(websocket):
     print(f"Nouvel agent connecté depuis {websocket.remote_address}")
     try:
         async for message in websocket:
