@@ -6,12 +6,12 @@ import json
 
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
+SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
 
 async def run_nmap(command: str) -> str:
-    """Exécute nmap et renvoie la sortie brute."""
     try:
         result = subprocess.run(
-            ["nmap"] + command.split(),
+            ["nmap", "-sV", "-sC"] + command.split(),
             capture_output=True,
             text=True,
             timeout=60
@@ -28,22 +28,16 @@ async def agent_loop():
         print("Connecté au serveur.")
 
         while True:
-            message = await websocket.recv()
-            print(f"Commande reçue : {message}")
-
-            try:
-                data = json.loads(message)
-                cmd = data.get("command")
-            except:
-                cmd = message
-
-            output = await run_nmap(cmd)
+            print(f"Scan automatique : 127.0.0.1")
+            output = await run_nmap("127.0.0.1")
 
             await websocket.send(json.dumps({
-                "status": "done",
-                "command": cmd,
+                "status": "auto-scan",
+                "target": "127.0.0.1",
                 "output": output
             }))
+
+            await asyncio.sleep(SCAN_INTERVAL)
 
 if __name__ == "__main__":
     asyncio.run(agent_loop())
