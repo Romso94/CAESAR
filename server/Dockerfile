@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
-# Installer nmap
-RUN apt-get update && apt-get install -y nmap && apt-get clean
+# Installer nmap et iproute2 (pour détecter l'IP de l'hôte)
+RUN apt-get update && apt-get install -y nmap iproute2 && apt-get clean
 
 WORKDIR /agent
 

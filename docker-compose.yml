@@ -6,6 +6,7 @@ services:
       - SERVER_HOST=${SERVER_HOST:-localhost}
       - WEBSOCKET_PORT=${WEBSOCKET_PORT:-8765}
       - SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - SCAN_TARGET=${SCAN_TARGET:-}
     # Sur Windows, network_mode: host ne fonctionne pas
     # Utilisez plutôt: docker run --network host agent-client
     # Ou sur Windows avec WSL2, utilisez WSL2 pour lancer le conteneur
