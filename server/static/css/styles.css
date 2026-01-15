@@ -583,23 +583,3 @@ button {
     margin-left: auto;
     font-size: 0.8rem;
 }
-
-/* Table action buttons */
-.table-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.btn-sm {
-    padding: 0.4rem 0.7rem;
-    font-size: 0.8rem;
-}
-
-.agent-id {
-    font-family: 'Courier New', monospace;
-    font-size: 0.8rem;
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.15);
-    padding: 0.2rem 0.4rem;
-    border-radius: 0.35rem;
-}

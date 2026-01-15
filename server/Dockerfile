@@ -1,26 +1,13 @@
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    API_HOST=0.0.0.0 \
-    API_PORT=8000 \
-    WEBSOCKET_HOST=0.0.0.0 \
-    WEBSOCKET_PORT=8765
+# Installer nmap et iproute2 (pour détecter l'IP de l'hôte)
+RUN apt-get update && apt-get install -y nmap iproute2 && apt-get clean
 
-WORKDIR /app
+WORKDIR /agent
 
-# Copier les fichiers depuis le répertoire courant (server/)
-COPY requirements.txt ./requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Créer la structure server/ et copier le code + assets front
-RUN mkdir -p ./server
-COPY serveur.py ./server/serveur.py
-COPY templates ./server/templates
-COPY static ./server/static
-RUN touch ./server/__init__.py
+COPY agent.py .
 
-# Expose HTTP API + WebSocket
-EXPOSE 8000 8765
-
-CMD ["python", "-m", "server.serveur"]
+CMD ["python", "agent.py"]
