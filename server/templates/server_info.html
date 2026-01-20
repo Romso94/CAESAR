@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Infos serveur</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/create" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
+            <a href="/app/agents" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/info" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Informations serveur</h1>
+                <p class="main-subtitle">Vue d'ensemble de votre instance CAESAR.</p>
+            </div>
+        </header>
+
+        <section class="info-grid">
+            <article class="card">
+                <h2>Statut des services</h2>
+                <ul class="status-list">
+                    <li>
+                        <span>API HTTP</span>
+                        <span class="badge badge-ok">En ligne</span>
+                    </li>
+                    <li>
+                        <span>WebSocket</span>
+                        <span class="badge badge-ok">En écoute</span>
+                    </li>
+                    <li>
+                        <span>Mode</span>
+                        <span class="badge">Démo UI</span>
+                    </li>
+                </ul>
+            </article>
+
+            <article class="card">
+                <h2>Configuration réseau</h2>
+                <dl class="info-dl">
+                    <dt>API Host</dt>
+                    <dd>0.0.0.0</dd>
+                    <dt>API Port</dt>
+                    <dd>8000</dd>
+                    <dt>WebSocket Host</dt>
+                    <dd>0.0.0.0</dd>
+                    <dt>WebSocket Port</dt>
+                    <dd>8765</dd>
+                </dl>
+            </article>
+
+            <article class="card">
+                <h2>Statistiques</h2>
+                <dl class="info-dl">
+                    <dt>Agents créés</dt>
+                    <dd>0</dd>
+                    <dt>Agents connectés</dt>
+                    <dd>0</dd>
+                    <dt>Commandes exécutées</dt>
+                    <dd>0</dd>
+                    <dt>Uptime</dt>
+                    <dd>--</dd>
+                </dl>
+            </article>
+
+            <article class="card">
+                <h2>Version & Build</h2>
+                <dl class="info-dl">
+                    <dt>Version API</dt>
+                    <dd>0.1.0</dd>
+                    <dt>Python</dt>
+                    <dd>3.11</dd>
+                    <dt>Framework</dt>
+                    <dd>FastAPI</dd>
+                    <dt>Déploiement</dt>
+                    <dd>Docker</dd>
+                </dl>
+            </article>
+
+            <article class="card card-full">
+                <h2>Endpoints disponibles</h2>
+                <div class="endpoints-list">
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">GET</code>
+                        <code class="endpoint-path">/</code>
+                        <span class="endpoint-desc">Page de login</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">GET</code>
+                        <code class="endpoint-path">/app</code>
+                        <span class="endpoint-desc">Dashboard principal</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">POST</code>
+                        <code class="endpoint-path">/api/login</code>
+                        <span class="endpoint-desc">Authentification JSON</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">GET</code>
+                        <code class="endpoint-path">/agents</code>
+                        <span class="endpoint-desc">Liste des agents (auth requise)</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">POST</code>
+                        <code class="endpoint-path">/agents</code>
+                        <span class="endpoint-desc">Créer un agent (auth requise)</span>
+                    </div>
+                    <div class="endpoint-item">
+                        <code class="endpoint-method">POST</code>
+                        <code class="endpoint-path">/agents/{id}/run</code>
+                        <span class="endpoint-desc">Exécuter un agent (auth requise)</span>
+                    </div>
+                </div>
+            </article>
+        </section>
+    </main>
+</div>
+</body>
+</html>

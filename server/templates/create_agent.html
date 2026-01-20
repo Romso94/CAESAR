@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Créer un agent</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/create" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
+            <a href="/app/agents" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/info" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Créer un agent</h1>
+                <p class="main-subtitle">Déployez un nouvel agent pentest sur votre infrastructure.</p>
+            </div>
+        </header>
+
+        <section class="form-section">
+            <article class="card">
+                <h2>Configuration de l'agent</h2>
+                <p>Remplissez les informations pour créer un nouvel agent. Le formulaire n'est pas encore fonctionnel.</p>
+                
+                <form class="agent-form" method="post" action="#">
+                    <div class="form-group">
+                        <label for="agent-name">Nom de l'agent</label>
+                        <input 
+                            id="agent-name" 
+                            name="name" 
+                            type="text" 
+                            placeholder="ex: Agent-Pentest-01" 
+                            required
+                        >
+                        <small class="form-hint">Identifiant unique pour cet agent</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="agent-description">Description</label>
+                        <textarea 
+                            id="agent-description" 
+                            name="description" 
+                            rows="4" 
+                            placeholder="Description de l'agent, outils intégrés, cibles, etc."
+                        ></textarea>
+                        <small class="form-hint">Optionnel : décrivez le rôle et les capacités de cet agent</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="agent-type">Type d'agent</label>
+                        <select id="agent-type" name="type">
+                            <option value="pentest">Pentest Standard</option>
+                            <option value="recon">Reconnaissance</option>
+                            <option value="exploit">Exploitation</option>
+                            <option value="post">Post-exploitation</option>
+                        </select>
+                        <small class="form-hint">Sélectionnez le type d'agent à déployer</small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Créer l'agent</button>
+                        <button type="button" class="btn btn-ghost">Annuler</button>
+                    </div>
+                </form>
+            </article>
+
+            <article class="card">
+                <h2>Informations</h2>
+                <p>Une fois créé, l'agent sera déployé via Docker et se connectera automatiquement au serveur via WebSocket.</p>
+                <ul class="info-list">
+                    <li>L'agent recevra un ID unique généré automatiquement</li>
+                    <li>La connexion WebSocket sera établie sur le port 8765</li>
+                    <li>Vous pourrez ensuite exécuter des commandes depuis la liste des agents</li>
+                </ul>
+            </article>
+        </section>
+    </main>
+</div>
+</body>
+</html>

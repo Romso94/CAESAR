@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Console</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/create" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
+            <a href="/app/agents" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/info" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Tableau de bord</h1>
+                <p class="main-subtitle">Contrôle minimal de vos agents pentest via WebSocket.</p>
+            </div>
+        </header>
+
+        <section class="cards-grid">
+            <article class="card">
+                <h2>Agents</h2>
+                <p>Gérez vos agents pentest depuis une interface simple.</p>
+                <div class="card-actions">
+                    <a href="/app/create" class="btn btn-secondary">Créer un agent</a>
+                    <a href="/app/agents" class="btn btn-ghost">Voir tous les agents</a>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Actions rapides</h2>
+                <p>Ces boutons ne font encore rien, ils illustrent l’interface.</p>
+                <div class="quick-actions">
+                    <button class="btn btn-primary btn-full">Run un agent</button>
+                    <button class="btn btn-danger btn-full">Supprimer un agent</button>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Statut serveur</h2>
+                <p>Vue d’ensemble de votre instance WebSocket &amp; API FastAPI.</p>
+                <ul class="status-list">
+                    <li><span>API HTTP</span><span class="badge badge-ok">En ligne</span></li>
+                    <li><span>WebSocket agents</span><span class="badge badge-ok">En écoute</span></li>
+                    <li><span>Mode</span><span class="badge">Démo UI</span></li>
+                </ul>
+            </article>
+        </section>
+    </main>
+</div>
+</body>
+</html>
+

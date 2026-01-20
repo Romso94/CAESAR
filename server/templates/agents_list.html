@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Liste des agents</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/create" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
+            <a href="/app/agents" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/info" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Liste des agents</h1>
+                <p class="main-subtitle">Gérez et contrôlez vos agents pentest déployés.</p>
+            </div>
+            <div>
+                <a href="/app/create" class="btn btn-primary">+ Nouvel agent</a>
+            </div>
+        </header>
+
+        <section class="agents-section">
+            <article class="card">
+                <div class="card-header">
+                    <h2>Agents actifs</h2>
+                    <span class="badge">0 agents</span>
+                </div>
+                <p>Aucun agent n'a encore été créé. Les boutons ci-dessous sont non fonctionnels pour l'instant.</p>
+                
+                <div class="agents-table-wrapper">
+                    <table class="agents-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nom</th>
+                                <th>Description</th>
+                                <th>Statut</th>
+                                <th>Dernière exécution</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="agents-table-empty">
+                                <td colspan="6">
+                                    <div class="empty-state">
+                                        <p>Aucun agent disponible</p>
+                                        <a href="/app/create" class="btn btn-secondary">Créer votre premier agent</a>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Exemple de ligne (non fonctionnel, juste pour l'affichage) -->
+                            <!--
+                            <tr>
+                                <td><code class="agent-id">a1b2c3d4</code></td>
+                                <td>Agent-Pentest-01</td>
+                                <td>Agent de reconnaissance et exploitation</td>
+                                <td><span class="badge badge-ok">Connecté</span></td>
+                                <td>--</td>
+                                <td>
+                                    <div class="table-actions">
+                                        <button class="btn btn-sm btn-primary">Run</button>
+                                        <button class="btn btn-sm btn-danger">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            -->
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Actions en lot</h2>
+                <p>Ces actions ne sont pas encore fonctionnelles.</p>
+                <div class="card-actions">
+                    <button class="btn btn-secondary">Sélectionner tout</button>
+                    <button class="btn btn-primary">Run sélectionnés</button>
+                    <button class="btn btn-danger">Supprimer sélectionnés</button>
+                </div>
+            </article>
+        </section>
+    </main>
+</div>
+</body>
+</html>
