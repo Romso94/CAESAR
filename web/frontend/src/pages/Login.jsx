@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { authAPI } from '../services/api'
 
 const Login = ({ onLogin }) => {
   const [formData, setFormData] = useState({
@@ -7,6 +8,7 @@ const Login = ({ onLogin }) => {
     password: '',
   })
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleChange = (e) => {
@@ -17,17 +19,35 @@ const Login = ({ onLogin }) => {
     setError('')
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
 
+    // Validation côté client
     if (!formData.email || !formData.password) {
       setError('Veuillez remplir tous les champs')
+      setLoading(false)
       return
     }
 
-    onLogin()
-    navigate('/dashboard')
+    try {
+      // Appel API pour la connexion
+      const response = await authAPI.login(formData.email, formData.password)
+
+      // Sauvegarder le token et les infos utilisateur
+      localStorage.setItem('caesar_token', response.data.token)
+      localStorage.setItem('caesar_user', JSON.stringify(response.data.user))
+
+      // Appeler la fonction de login du parent
+      onLogin()
+      navigate('/dashboard')
+    } catch (err) {
+      // Afficher le message d'erreur du backend
+      setError(err.message || 'Une erreur est survenue lors de la connexion')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -68,8 +88,12 @@ const Login = ({ onLogin }) => {
                 className="input-field"
               />
 
-              <button className="btn-primary w-full">
-                Se connecter
+              <button 
+                type="submit"
+                className="btn-primary w-full"
+                disabled={loading}
+              >
+                {loading ? 'Connexion...' : 'Se connecter'}
               </button>
             </form>
 

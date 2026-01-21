@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { authAPI } from '../services/api'
 
 const Register = ({ onLogin }) => {
   const [formData, setFormData] = useState({
@@ -9,6 +10,7 @@ const Register = ({ onLogin }) => {
     confirmPassword: '',
   })
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleChange = (e) => {
@@ -19,27 +21,50 @@ const Register = ({ onLogin }) => {
     setError('')
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
 
+    // Validation côté client
     if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
       setError('Veuillez remplir tous les champs')
+      setLoading(false)
       return
     }
 
     if (formData.password !== formData.confirmPassword) {
       setError('Les mots de passe ne correspondent pas')
+      setLoading(false)
       return
     }
 
     if (formData.password.length < 8) {
       setError('Le mot de passe doit contenir au moins 8 caractères')
+      setLoading(false)
       return
     }
 
-    onLogin()
-    navigate('/dashboard')
+    try {
+      // Appel API pour l'inscription
+      const response = await authAPI.register({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+      })
+
+      // Sauvegarder le token
+      localStorage.setItem('caesar_token', response.data.token)
+      localStorage.setItem('caesar_user', JSON.stringify(response.data.user))
+
+      // Appeler la fonction de login du parent
+      onLogin()
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue lors de l\'inscription')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -101,8 +126,12 @@ const Register = ({ onLogin }) => {
                 className="input-field"
               />
 
-              <button className="btn-primary w-full">
-                Créer mon compte
+              <button 
+                type="submit"
+                className="btn-primary w-full"
+                disabled={loading}
+              >
+                {loading ? 'Création en cours...' : 'Créer mon compte'}
               </button>
             </form>
 

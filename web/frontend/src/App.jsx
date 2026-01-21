@@ -6,6 +6,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import ServerConfig from './pages/ServerConfig'
 import ScanResults from './pages/ScanResults'
+import UsersList from './pages/UsersList'
 import Layout from './components/Layout'
 
 function App() {
@@ -13,20 +14,40 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Vérifier si l'utilisateur est connecté (pour l'instant, simulation)
-    const auth = localStorage.getItem('caesar_auth')
-    setIsAuthenticated(!!auth)
-    setLoading(false)
+    // Vérifier si l'utilisateur est connecté via le token JWT
+    const checkAuth = async () => {
+      const token = localStorage.getItem('caesar_token')
+      
+      if (token) {
+        try {
+          // Vérifier que le token est valide en appelant l'API
+          const { authAPI } = await import('./services/api')
+          await authAPI.getMe()
+          setIsAuthenticated(true)
+        } catch (error) {
+          // Token invalide ou expiré
+          localStorage.removeItem('caesar_token')
+          localStorage.removeItem('caesar_user')
+          setIsAuthenticated(false)
+        }
+      } else {
+        setIsAuthenticated(false)
+      }
+      
+      setLoading(false)
+    }
+
+    checkAuth()
   }, [])
 
   const handleLogin = () => {
     setIsAuthenticated(true)
-    localStorage.setItem('caesar_auth', 'true')
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
-    localStorage.removeItem('caesar_auth')
+    localStorage.removeItem('caesar_token')
+    localStorage.removeItem('caesar_user')
   }
 
   // Composant pour routes protégées
@@ -65,6 +86,7 @@ function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/server-config" element={<ServerConfig />} />
           <Route path="/scan-results" element={<ScanResults />} />
+          <Route path="/users" element={<UsersList />} />
         </Route>
       </Routes>
     </Router>

@@ -7,6 +7,7 @@ const Layout = ({ onLogout }) => {
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/server-config', label: 'Configuration Serveur', icon: '⚙️' },
     { path: '/scan-results', label: 'Résultats de Scan', icon: '📋' },
+    { path: '/users', label: 'Utilisateurs', icon: '👥' },
   ]
 
   const isActive = (path) => location.pathname === path
