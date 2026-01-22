@@ -20,7 +20,12 @@ COPY templates ./server/templates
 COPY static ./server/static
 RUN touch ./server/__init__.py
 
+# Ajout de l'entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Expose HTTP API + WebSocket
 EXPOSE 8000 8765
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "-m", "server.serveur"]
