@@ -12,6 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
 security = HTTPBearer(auto_error=False)
 app = FastAPI(title="Agent Control API", version="0.1.0")
 
@@ -147,10 +150,19 @@ async def stop_ws_server():
 # ------------------------------
 @app.post("/api/login")
 async def login(payload: LoginRequest):
-    # Démo simple: tout utilisateur reçoit un token unique
+    if (
+        payload.username != ADMIN_USERNAME
+        or payload.password != ADMIN_PASSWORD
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Identifiants invalides",
+        )
+
     token = secrets.token_hex(16)
     TOKENS[payload.username] = token
     return {"token": token}
+
 
 
 @app.post("/agents")
