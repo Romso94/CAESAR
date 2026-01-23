@@ -8,15 +8,18 @@ import socket
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
-IP_INTERFACE = os.getenv("IP_INTERFACE", None)  # Permet de forcer une IP cible
 
 def get_host_ip():
     """
     Retourne l'IP cible configurée via la variable d'environnement IP_INTERFACE.
+    Lit la variable à chaque appel pour obtenir la valeur courante.
     """
-    if not IP_INTERFACE:
+    ip_interface = os.getenv("IP_INTERFACE")
+    print(f"DEBUG: IP_INTERFACE={repr(ip_interface)}")
+    print(f"DEBUG: Toutes les env vars: {[(k, v) for k, v in os.environ.items() if 'IP' in k or 'SERVER' in k]}")
+    if not ip_interface:
         raise ValueError("IP_INTERFACE doit être définie. Exemple: IP_INTERFACE=192.168.1.132")
-    return IP_INTERFACE
+    return ip_interface
 
 def parse_nmap_output(output: str, target: str) -> dict:
     """
@@ -305,14 +308,14 @@ async def run_nmap(target: str) -> dict:
                 "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
                 "stderr": stderr_output,
                 "target": target,
-                "scan_target": target
+                "ip_interface": target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_nmap_output(stdout_output, target)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
-        parsed_data["scan_target"] = target  # Ajouter l'IP de la machine cible
+        parsed_data["ip_interface"] = target  # Ajouter l'IP de la machine cible
         
         return parsed_data
             
@@ -321,7 +324,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except FileNotFoundError:
@@ -329,7 +332,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Nmap n'est pas installé sur le système",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except Exception as e:
@@ -337,7 +340,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": f"Erreur lors du scan : {e}",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     
@@ -372,14 +375,14 @@ async def run_lynis(scan_target: str) -> dict:
                 "message": f"Erreur lors de l'exécution de Lynis (code {result.returncode})",
                 "stderr": stderr_output,
                 "format": "error",
-                "scan_target": scan_target
+                "ip_interface": scan_target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_lynis_output(stdout_output)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
-        parsed_data["scan_target"] = scan_target  # Ajouter l'IP de la machine cible
+        parsed_data["ip_interface"] = scan_target  # Ajouter l'IP de la machine cible
         parsed_data["raw_output"] = stdout_output  # Ajouter aussi la sortie brute pour référence
         
         return parsed_data
@@ -389,21 +392,21 @@ async def run_lynis(scan_target: str) -> dict:
             "error": True,
             "message": "Timeout lors de l'audit Lynis (dépassement de 120 secondes)",
             "format": "error",
-            "scan_target": scan_target
+            "ip_interface": scan_target
         }
     except FileNotFoundError:
         return {
             "error": True,
             "message": "Lynis n'est pas installé sur le système",
             "format": "error",
-            "scan_target": scan_target
+            "ip_interface": scan_target
         }
     except Exception as e:
         return {
             "error": True,
             "message": f"Erreur lors de l'audit : {e}",
             "format": "error",
-            "scan_target": scan_target
+            "ip_interface": scan_target
         }
     
 async def agent_loop():
@@ -422,7 +425,7 @@ async def agent_loop():
                 # Envoyer un message d'initialisation avec l'IP cible
                 await websocket.send(json.dumps({
                     "status": "agent-init",
-                    "scan_target": host_ip
+                    "ip_interface": host_ip
                 }))
                 print(f"Message d'initialisation envoyé avec IP cible: {host_ip}")
                 
@@ -470,7 +473,7 @@ async def scan_loop(websocket, host_ip):
             await websocket.send(json.dumps({
                 "status": "auto-scan",
                 "target": host_ip,
-                "scan_target": host_ip,
+                "ip_interface": host_ip,
                 "output": output_nmap
             }))
 
@@ -481,8 +484,8 @@ async def scan_loop(websocket, host_ip):
             # Envoyer le résultat de l'audit Lynis au serveur
             await websocket.send(json.dumps({
                 "status": "lynis-audit",
-                "target": "localhost",
-                "scan_target": host_ip,
+                "target": host_ip,
+                "ip_interface": host_ip,
                 "output": output_lynis
             }))
             print("Résultat Lynis envoyé au serveur.")

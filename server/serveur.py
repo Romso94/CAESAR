@@ -39,14 +39,14 @@ class RunAgentRequest(BaseModel):
 # WebSocket handler for agents
 async def handler(websocket):
     agent_id = None
-    scan_target = None
+    scan_target = "inconnue"
     print(f"Nouvel agent connecté depuis {websocket.remote_address}")
     try:
         # Enregistrer la connexion de l'agent
         agent_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         AGENT_CONNECTIONS[agent_id] = {
             "websocket": websocket,
-            "scan_target": None,
+            "ip_interface": None,
             "connected_at": None,
             "last_nmap": None,
             "last_lynis": None
@@ -57,12 +57,16 @@ async def handler(websocket):
             # Extraire scan_target du message pour l'afficher
             try:
                 data = json.loads(message)
-                scan_target = data.get("scan_target", "inconnue")
                 message_status = data.get("status", "unknown")
+                message_scan_target = data.get("ip_interface")
                 
-                # Mettre à jour l'IP cible si c'est un message d'initialisation
+                # Mettre à jour l'IP cible si fournie
+                if message_scan_target:
+                    scan_target = message_scan_target
+                    AGENT_CONNECTIONS[agent_id]["ip_interface"] = scan_target
+                
+                # Traiter le message d'initialisation
                 if message_status == "agent-init":
-                    AGENT_CONNECTIONS[agent_id]["scan_target"] = scan_target
                     print(f"Agent {agent_id} initialisé avec IP cible: {scan_target}")
                 
                 # Stocker les résultats des scans
@@ -75,7 +79,6 @@ async def handler(websocket):
                         except:
                             output = {}
                     AGENT_CONNECTIONS[agent_id]["last_nmap"] = output
-                    print(f"Résultat Nmap stocké pour {agent_id}")
                 
                 elif message_status == "lynis-audit":
                     output = data.get("output", {})
@@ -86,11 +89,11 @@ async def handler(websocket):
                         except:
                             output = {}
                     AGENT_CONNECTIONS[agent_id]["last_lynis"] = output
-                    print(f"Résultat Lynis stocké pour {agent_id}")
                 
-                print(f"Rapport reçu de l'agent {websocket.remote_address} ({message_status}) de la machine ('{scan_target}'): {message[:100]}...")
+                # Log du message reçu avec l'IP cible à jour
+                print(f"Rapport reçu de l'agent {agent_id} ({message_status}) de la machine ('{scan_target}'): {message[:100]}...")
             except (json.JSONDecodeError, ValueError):
-                print(f"Rapport reçu de l'agent {websocket.remote_address}: {message[:100]}...")
+                print(f"Rapport reçu de l'agent {agent_id}: {message[:100]}...")
             await websocket.send("Rapport bien reçu.")
     except websockets.exceptions.ConnectionClosedError:
         print(f"Agent {websocket.remote_address} déconnecté.")
@@ -142,7 +145,7 @@ async def agents_list_page(request: Request):
         {
             "id": agent_id,
             "address": agent_id,
-            "scan_target": info.get("scan_target", "Non configuré"),
+            "scan_target": info.get("ip_interface", "Non configuré"),
             "status": "online"
         }
         for agent_id, info in AGENT_CONNECTIONS.items()
@@ -171,7 +174,7 @@ async def agent_details_page(request: Request, agent_id: str):
         "request": request,
         "agent_id": agent_id,
         "agent_address": agent_id,
-        "scan_target": agent_info.get("scan_target", "Non configuré"),
+        "scan_target": agent_info.get("ip_interface", "Non configuré"),
         "nmap_result": nmap_result,
         "lynis_result": lynis_result,
         "has_nmap": nmap_result is not None,
