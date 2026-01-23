@@ -62,6 +62,31 @@ async def run_nmap(command: str) -> str:
         return result.stdout
     except Exception as e:
         return f"Erreur lors du scan : {e}"
+    
+# async def run_lynis() -> str:
+#     """
+#     Exécute un audit de sécurité avec Lynis.
+#     Lynis analyse la configuration de sécurité de l'HÔTE via volumes montés.
+#     L'hôte doit être monté sur /host dans le conteneur.
+#     Nécessite des droits root pour un audit complet.
+#     """
+#     try:
+#         # Commande Lynis avec options :
+#         # --rootdir=/host : audite l'hôte monté sur /host
+#         # --quiet : mode silencieux
+#         # --quick : audit rapide
+#         result = subprocess.run(
+#             ["lynis", "audit", "system", "--quick", "--quiet", "--rootdir=/host"],
+#             capture_output=True,
+#             text=True,
+#             timeout=120  # Lynis peut être plus lent que nmap
+#         )
+#         return result.stdout if result.stdout else result.stderr
+#     except FileNotFoundError:
+#         return "Erreur : Lynis n'est pas installé sur le système"
+#     except Exception as e:
+#         return f"Erreur lors de l'audit Lynis : {e}"
+
 
 async def agent_loop():
     uri = f"ws://{SERVER_HOST}:{SERVER_PORT}"
@@ -76,15 +101,30 @@ async def agent_loop():
 
         while True:
             print(f"Scan automatique : {host_ip}")
-            output = await run_nmap(host_ip)
+            output_nmap = await run_nmap(host_ip)
 
             await websocket.send(json.dumps({
                 "status": "auto-scan",
                 "target": host_ip,
-                "output": output
+                "output": output_nmap
             }))
 
-            await asyncio.sleep(SCAN_INTERVAL)
+
+
+        # # ===== AUDIT LYNIS =====
+        # print("Exécution de l'audit de sécurité Lynis...")
+        # output_lynis = await run_lynis()
+
+        # # Envoyer le résultat de l'audit Lynis au serveur
+        # await websocket.send(json.dumps({
+        #     "status": "lynis-audit",
+        #     "target": "localhost",  # Lynis audite le système local
+        #     "output": output_lynis
+        # }))
+        # print("Résultat Lynis envoyé au serveur.")
+
+        print(f"Attente de {SCAN_INTERVAL} secondes avant le prochain scan...")
+        await asyncio.sleep(SCAN_INTERVAL)
 
 if __name__ == "__main__":
     asyncio.run(agent_loop())
