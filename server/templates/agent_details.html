@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Détails de l'agent</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .details-section {
+            margin-top: 2rem;
+        }
+        .result-header {
+            border-left: 4px solid #0078d4;
+            padding-left: 1rem;
+            margin: 2rem 0 1rem 0;
+        }
+        .result-header h3 {
+            margin: 0;
+            color: #0078d4;
+        }
+        .no-data {
+            padding: 2rem;
+            text-align: center;
+            background: #f5f5f5;
+            border-radius: 4px;
+            color: #666;
+        }
+        .port-item {
+            padding: 1rem;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            background: #fafafa;
+        }
+        .port-status.open {
+            color: #107c10;
+            font-weight: bold;
+        }
+        .port-status.closed {
+            color: #d83b01;
+            font-weight: bold;
+        }
+        .port-status.filtered {
+            color: #ff8c00;
+            font-weight: bold;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        .summary-item {
+            background: #f5f5f5;
+            padding: 1rem;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .summary-item .value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #0078d4;
+        }
+        .summary-item .label {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        .test-item {
+            padding: 0.75rem;
+            border-left: 3px solid #ccc;
+            margin: 0.5rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .test-item.passed {
+            border-left-color: #107c10;
+            background: #f1f7f1;
+        }
+        .test-item.warning {
+            border-left-color: #ff8c00;
+            background: #fff8f2;
+        }
+        .test-item.failed {
+            border-left-color: #d83b01;
+            background: #fef5f2;
+        }
+        .badge-result {
+            padding: 0.25rem 0.75rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        .badge-result.passed {
+            background: #107c10;
+            color: white;
+        }
+        .badge-result.warning {
+            background: #ff8c00;
+            color: white;
+        }
+        .badge-result.failed {
+            background: #d83b01;
+            color: white;
+        }
+        .back-button {
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/agents" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/info" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Détails de l'agent</h1>
+                <p class="main-subtitle">Résultats des scans pour {{ agent_address }}</p>
+            </div>
+            <div>
+                <a href="/app/agents" class="btn btn-secondary back-button">← Retour</a>
+            </div>
+        </header>
+
+        <section class="details-section">
+            <article class="card">
+                <h2>Informations de l'agent</h2>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <div class="value">{{ agent_address }}</div>
+                        <div class="label">Adresse de l'agent</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="value">{{ scan_target }}</div>
+                        <div class="label">IP cible</div>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <!-- Résultats Nmap -->
+        <section class="details-section">
+            <article class="card">
+                <div class="result-header">
+                    <h3>Résultats Nmap</h3>
+                </div>
+                
+                {% if has_nmap and nmap_result %}
+                    {% if nmap_result is mapping and nmap_result.error %}
+                        <div class="no-data">
+                            <p><strong>Erreur :</strong> {{ nmap_result.message }}</p>
+                        </div>
+                    {% elif nmap_result is mapping %}
+                        <!-- Résumé -->
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <div class="value">{{ nmap_result.summary.total_ports_scanned }}</div>
+                                <div class="label">Ports scannés</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #107c10;">{{ nmap_result.summary.open_ports }}</div>
+                                <div class="label">Ports ouverts</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #d83b01;">{{ nmap_result.summary.closed_ports }}</div>
+                                <div class="label">Ports fermés</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #ff8c00;">{{ nmap_result.summary.filtered_ports }}</div>
+                                <div class="label">Ports filtrés</div>
+                            </div>
+                        </div>
+
+                        <!-- Informations d'hôte -->
+                        {% if nmap_result.host_status %}
+                        <div style="margin-top: 1.5rem;">
+                            <h4>Statut de l'hôte</h4>
+                            <p>
+                                <strong>Statut :</strong> <span class="badge badge-ok">{{ nmap_result.host_status }}</span>
+                                {% if nmap_result.latency %}
+                                <br><strong>Latence :</strong> {{ nmap_result.latency }}
+                                {% endif %}
+                            </p>
+                        </div>
+                        {% endif %}
+
+                        <!-- Ports ouverts -->
+                        {% if nmap_result.ports %}
+                        <div style="margin-top: 1.5rem;">
+                            <h4>Ports détectés</h4>
+                            {% for port in nmap_result.ports %}
+                            <div class="port-item">
+                                <strong>Port {{ port.port }}/{{ port.protocol }}</strong>
+                                <span class="port-status {{ port.state }}">{{ port.state }}</span>
+                                <br>
+                                <strong>Service :</strong> {{ port.service }}
+                                {% if port.version %}
+                                <br><strong>Version :</strong> {{ port.version }}
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        <!-- Informations OS -->
+                        {% if nmap_result.os_info %}
+                        <div style="margin-top: 1.5rem;">
+                            <h4>Informations système</h4>
+                            {% for key, value in nmap_result.os_info.items() %}
+                            <p><strong>{{ key }} :</strong> {{ value }}</p>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                    <div class="no-data">
+                        <p>Aucun résultat Nmap disponible. L'agent n'a pas encore envoyé de rapport.</p>
+                    </div>
+                {% endif %}
+            </article>
+        </section>
+
+        <!-- Résultats Lynis -->
+        <section class="details-section">
+            <article class="card">
+                <div class="result-header">
+                    <h3>Résultats Lynis</h3>
+                </div>
+                
+                {% if has_lynis and lynis_result %}
+                    {% if lynis_result is mapping %}
+                        {% if lynis_result.error %}
+                            <div class="no-data">
+                                <p><strong>Erreur :</strong> {{ lynis_result.message }}</p>
+                            </div>
+                        {% elif lynis_result.summary %}
+                            <!-- Résumé -->
+                            <div class="summary-grid">
+                            <div class="summary-item">
+                                <div class="value">{{ lynis_result.summary.total_tests }}</div>
+                                <div class="label">Tests exécutés</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #107c10;">{{ lynis_result.summary.passed }}</div>
+                                <div class="label">Tests réussis</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #ff8c00;">{{ lynis_result.summary.warning }}</div>
+                                <div class="label">Avertissements</div>
+                            </div>
+                            <div class="summary-item">
+                                <div class="value" style="color: #d83b01;">{{ lynis_result.summary.failed }}</div>
+                                <div class="label">Tests échoués</div>
+                            </div>
+                            </div>
+
+                            <!-- Informations système -->
+                            {% if lynis_result.system_info %}
+                            <div style="margin-top: 1.5rem;">
+                                <h4>Informations système</h4>
+                                {% for key, value in lynis_result.system_info.items() %}
+                                <p><strong>{{ key }} :</strong> {{ value }}</p>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            <!-- Tests par section -->
+                            {% if lynis_result.sections %}
+                            <div style="margin-top: 1.5rem;">
+                                <h4>Tests de sécurité</h4>
+                                {% for section_name, section_data in lynis_result.sections.items() %}
+                                {% if section_data.tests %}
+                                <div style="margin-top: 1rem;">
+                                    <h5>{{ section_name }}</h5>
+                                    {% for test in section_data.tests %}
+                                    <div class="test-item {{ test.result|lower }}">
+                                        <div>
+                                            <strong>{{ test.id }}</strong><br>
+                                            <small>{{ test.description }}</small>
+                                        </div>
+                                        <span class="badge-result {{ test.result|lower }}">{{ test.result }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            <!-- Avertissements et suggestions -->
+                            {% if lynis_result.warnings %}
+                            <div style="margin-top: 1.5rem;">
+                                <h4>⚠️ Avertissements</h4>
+                                {% for warning in lynis_result.warnings %}
+                                <div class="test-item warning">
+                                    <div>{{ warning.message }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+
+                            {% if lynis_result.suggestions %}
+                            <div style="margin-top: 1.5rem;">
+                                <h4>💡 Suggestions</h4>
+                                {% for suggestion in lynis_result.suggestions %}
+                                <div class="test-item">
+                                    <div>{{ suggestion.message }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="no-data">
+                                <p>Pas de résumé disponible pour les résultats Lynis.</p>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="no-data">
+                            <p>Données Lynis invalides ou non disponibles.</p>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="no-data">
+                        <p>Aucun résultat Lynis disponible. L'agent n'a pas encore envoyé de rapport.</p>
+                    </div>
+                {% endif %}
+            </article>
+        </section>
+    </main>
+</div>
+</body>
+</html>

@@ -8,48 +8,15 @@ import socket
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
-SCAN_TARGET = os.getenv("SCAN_TARGET", None)  # Permet de forcer une IP cible
+IP_INTERFACE = os.getenv("IP_INTERFACE", None)  # Permet de forcer une IP cible
 
 def get_host_ip():
     """
-    Détecte l'IP de l'hôte Windows depuis le conteneur Docker.
-    Sur Docker Desktop Windows, utilise host.docker.internal ou la gateway par défaut.
+    Retourne l'IP cible configurée via la variable d'environnement IP_INTERFACE.
     """
-    if SCAN_TARGET:
-        return SCAN_TARGET
-    
-    # Essayer d'abord host.docker.internal (fonctionne sur Docker Desktop)
-    try:
-        host_ip = socket.gethostbyname("host.docker.internal")
-        print(f"IP hôte détectée via host.docker.internal: {host_ip}")
-        return host_ip
-    except socket.gaierror:
-        pass
-    
-    # Sinon, utiliser la gateway par défaut du conteneur (généralement l'hôte)
-    try:
-        result = subprocess.run(
-            ["ip", "route", "show", "default"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            # Extraire l'IP de la gateway (premier champ après "default via")
-            parts = result.stdout.strip().split()
-            if "via" in parts:
-                idx = parts.index("via")
-                if idx + 1 < len(parts):
-                    gateway_ip = parts[idx + 1]
-                    print(f"IP hôte détectée via gateway: {gateway_ip}")
-                    return gateway_ip
-    except Exception as e:
-        print(f"Erreur lors de la détection de la gateway: {e}")
-    
-    # Fallback: utiliser host.docker.internal même si la résolution DNS échoue
-    # Sur Windows Docker Desktop, cela devrait fonctionner
-    print("Utilisation de host.docker.internal comme fallback")
-    return "host.docker.internal"
+    if not IP_INTERFACE:
+        raise ValueError("IP_INTERFACE doit être définie. Exemple: IP_INTERFACE=192.168.1.132")
+    return IP_INTERFACE
 
 def parse_nmap_output(output: str, target: str) -> dict:
     """
@@ -190,6 +157,129 @@ def parse_nmap_output(output: str, target: str) -> dict:
     return result
 
 
+def clean_ansi_codes(text: str) -> str:
+    """
+    Supprime les codes ANSI (couleurs, formatage) de la sortie.
+    """
+    import re
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
+
+
+def parse_lynis_output(output: str) -> dict:
+    """
+    Parse la sortie texte de Lynis et la structure en JSON.
+    Extrait les informations de sécurité de manière structurée.
+    """
+    result = {
+        "target": "localhost",
+        "audit_type": "system-security",
+        "tests": [],
+        "warnings": [],
+        "suggestions": [],
+        "summary": {
+            "total_tests": 0,
+            "passed": 0,
+            "warning": 0,
+            "failed": 0
+        },
+        "sections": {}
+    }
+    
+    lines = output.split('\n')
+    current_section = None
+    
+    for line in lines:
+        line_stripped = line.strip()
+        
+        # Parser les sections (ex: "System tools")
+        if line.startswith('[') and ']' in line:
+            section_match = line.split(']')
+            if len(section_match) >= 2:
+                current_section = section_match[1].strip()
+                if current_section:
+                    result["sections"][current_section] = {
+                        "tests": [],
+                        "warnings": [],
+                        "suggestions": []
+                    }
+        
+        # Parser les tests avec résultats
+        if " [ " in line and " ] " in line:
+            # Format: [TEST-ID] Description [ PASSED/WARNING/FAILED ]
+            try:
+                # Extraire l'ID du test
+                test_id_start = line.find('[')
+                test_id_end = line.find(']', test_id_start)
+                if test_id_start != -1 and test_id_end != -1:
+                    test_id = line[test_id_start + 1:test_id_end].strip()
+                    
+                    # Extraire le résultat du test
+                    result_start = line.rfind('[')
+                    result_end = line.rfind(']')
+                    if result_start != -1 and result_end != -1:
+                        test_result = line[result_start + 1:result_end].strip()
+                        
+                        # Extraire la description
+                        description = line[test_id_end + 1:result_start].strip()
+                        
+                        test_data = {
+                            "id": test_id,
+                            "description": description,
+                            "result": test_result
+                        }
+                        
+                        # Ajouter aux résultats globaux
+                        result["tests"].append(test_data)
+                        
+                        # Mettre à jour les statistiques
+                        result["summary"]["total_tests"] += 1
+                        if test_result == "PASSED":
+                            result["summary"]["passed"] += 1
+                        elif test_result == "WARNING":
+                            result["summary"]["warning"] += 1
+                            result["warnings"].append(test_data)
+                        elif test_result == "FAILED":
+                            result["summary"]["failed"] += 1
+                        
+                        # Ajouter à la section courante
+                        if current_section and current_section in result["sections"]:
+                            result["sections"][current_section]["tests"].append(test_data)
+            except:
+                pass
+        
+        # Parser les avertissements et suggestions
+        if "Warning:" in line or "WARNING:" in line:
+            warning_text = line.replace("Warning:", "").replace("WARNING:", "").strip()
+            if warning_text:
+                result["warnings"].append({
+                    "message": warning_text,
+                    "section": current_section
+                })
+        
+        if "Suggestion:" in line or "SUGGESTION:" in line:
+            suggestion_text = line.replace("Suggestion:", "").replace("SUGGESTION:", "").strip()
+            if suggestion_text:
+                result["suggestions"].append({
+                    "message": suggestion_text,
+                    "section": current_section
+                })
+        
+        # Parser les informations générales du système
+        if "Hostname:" in line or "OS name:" in line or "OS version:" in line:
+            if "system_info" not in result:
+                result["system_info"] = {}
+            
+            if "Hostname:" in line:
+                result["system_info"]["hostname"] = line.split(":", 1)[1].strip()
+            elif "OS name:" in line:
+                result["system_info"]["os_name"] = line.split(":", 1)[1].strip()
+            elif "OS version:" in line:
+                result["system_info"]["os_version"] = line.split(":", 1)[1].strip()
+    
+    return result
+
+
 async def run_nmap(target: str) -> dict:
     """
     Exécute un scan Nmap et retourne les résultats structurés en JSON.
@@ -214,13 +304,15 @@ async def run_nmap(target: str) -> dict:
                 "error": True,
                 "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
                 "stderr": stderr_output,
-                "target": target
+                "target": target,
+                "scan_target": target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_nmap_output(stdout_output, target)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
+        parsed_data["scan_target"] = target  # Ajouter l'IP de la machine cible
         
         return parsed_data
             
@@ -229,6 +321,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
             "target": target,
+            "scan_target": target,
             "format": "error"
         }
     except FileNotFoundError:
@@ -236,6 +329,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Nmap n'est pas installé sur le système",
             "target": target,
+            "scan_target": target,
             "format": "error"
         }
     except Exception as e:
@@ -243,34 +337,75 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": f"Erreur lors du scan : {e}",
             "target": target,
+            "scan_target": target,
             "format": "error"
         }
     
-async def run_lynis() -> str:
+async def run_lynis(scan_target: str) -> dict:
     """
     Exécute un audit de sécurité avec Lynis.
-    Lynis analyse la configuration de sécurité de l'HÔTE via volumes montés.
-    L'hôte doit être monté sur /host dans le conteneur.
-    Nécessite des droits root pour un audit complet.
+    Analyse la configuration de sécurité du système.
+    Retourne les résultats structurés en JSON.
     """
     try:
         # Commande Lynis avec options :
-        # --rootdir=/host : audite l'hôte monté sur /host
+        # --no-colors : pas de codes de couleur ANSI
         # --quiet : mode silencieux
         # --quick : audit rapide
         result = subprocess.run(
-            ["lynis", "audit", "system", "--quick", "--quiet", "--rootdir=/host"],
+            ["lynis", "audit", "system", "--quick", "--no-colors"],
             capture_output=True,
             text=True,
             timeout=120  # Lynis peut être plus lent que nmap
         )
-        return result.stdout if result.stdout else result.stderr
+        
+        stdout_output = result.stdout if result.stdout else ""
+        stderr_output = result.stderr if result.stderr else ""
+        
+        # Nettoyer les codes ANSI même si --no-colors est fourni
+        stdout_output = clean_ansi_codes(stdout_output)
+        stderr_output = clean_ansi_codes(stderr_output)
+        
+        if result.returncode != 0:
+            return {
+                "error": True,
+                "message": f"Erreur lors de l'exécution de Lynis (code {result.returncode})",
+                "stderr": stderr_output,
+                "format": "error",
+                "scan_target": scan_target
+            }
+        
+        # Parser la sortie texte et la structurer
+        parsed_data = parse_lynis_output(stdout_output)
+        parsed_data["error"] = False
+        parsed_data["format"] = "structured"
+        parsed_data["scan_target"] = scan_target  # Ajouter l'IP de la machine cible
+        parsed_data["raw_output"] = stdout_output  # Ajouter aussi la sortie brute pour référence
+        
+        return parsed_data
+        
+    except subprocess.TimeoutExpired:
+        return {
+            "error": True,
+            "message": "Timeout lors de l'audit Lynis (dépassement de 120 secondes)",
+            "format": "error",
+            "scan_target": scan_target
+        }
     except FileNotFoundError:
-        return "Erreur : Lynis n'est pas installé sur le système"
+        return {
+            "error": True,
+            "message": "Lynis n'est pas installé sur le système",
+            "format": "error",
+            "scan_target": scan_target
+        }
     except Exception as e:
-        return f"Erreur lors de l'audit Lynis : {e}"
-
-
+        return {
+            "error": True,
+            "message": f"Erreur lors de l'audit : {e}",
+            "format": "error",
+            "scan_target": scan_target
+        }
+    
 async def agent_loop():
     uri = f"ws://{SERVER_HOST}:{SERVER_PORT}"
     
@@ -283,47 +418,37 @@ async def agent_loop():
             print(f"Connexion à {uri}...")
             async with websockets.connect(uri) as websocket:
                 print("Connecté au serveur.")
-
-                while True:
-                    print(f"Scan automatique : {host_ip}")
-                    output_nmap = await run_nmap(host_ip)
-
-                    await websocket.send(json.dumps({
-                        "status": "auto-scan",
-                        "target": host_ip,
-                        "output": output_nmap  # Déjà au format dict, sera sérialisé en JSON
-                    }))
-
-                    # Lire la réponse du serveur pour éviter de surcharger le buffer
-                    try:
-                        response = await asyncio.wait_for(websocket.recv(), timeout=1.0)
-                        print(f"Réponse serveur: {response}")
-                    except asyncio.TimeoutError:
-                        # Pas de réponse, continuer
-                        pass
-
-                    # ===== AUDIT LYNIS =====
-                    print("Exécution de l'audit de sécurité Lynis...")
-                    output_lynis = await run_lynis()
-
-                    # Envoyer le résultat de l'audit Lynis au serveur
-                    await websocket.send(json.dumps({
-                        "status": "lynis-audit",
-                        "target": "localhost",  # Lynis audite le système local
-                        "output": output_lynis
-                    }))
-                    print("Résultat Lynis envoyé au serveur.")
-
-                    # Lire la réponse du serveur pour éviter de surcharger le buffer
-                    try:
-                        response = await asyncio.wait_for(websocket.recv(), timeout=1.0)
-                        print(f"Réponse serveur: {response}")
-                    except asyncio.TimeoutError:
-                        # Pas de réponse, continuer
-                        pass
-
-                    print(f"Attente de {SCAN_INTERVAL} secondes avant le prochain scan...")
-                    await asyncio.sleep(SCAN_INTERVAL)
+                
+                # Envoyer un message d'initialisation avec l'IP cible
+                await websocket.send(json.dumps({
+                    "status": "agent-init",
+                    "scan_target": host_ip
+                }))
+                print(f"Message d'initialisation envoyé avec IP cible: {host_ip}")
+                
+                # Créer une tâche de scan en arrière-plan
+                scan_task = asyncio.create_task(scan_loop(websocket, host_ip))
+                
+                # Boucle pour recevoir les commandes du serveur
+                try:
+                    async for message in websocket:
+                        try:
+                            data = json.loads(message)
+                            if data.get("type") == "configure":
+                                # Mettre à jour l'IP cible
+                                new_ip = data.get("ip_interface")
+                                if new_ip:
+                                    host_ip = new_ip
+                                    print(f"Configuration mise à jour. Nouvelle IP cible: {host_ip}")
+                                    await websocket.send(json.dumps({
+                                        "status": "configured",
+                                        "new_ip": host_ip
+                                    }))
+                        except json.JSONDecodeError:
+                            print(f"Message non-JSON reçu: {message}")
+                except asyncio.CancelledError:
+                    scan_task.cancel()
+                    raise
 
         except websockets.exceptions.ConnectionClosedError as e:
             print(f"Connexion fermée: {e}. Reconnexion dans 5 secondes...")
@@ -331,6 +456,46 @@ async def agent_loop():
         except Exception as e:
             print(f"Erreur de connexion: {e}. Reconnexion dans 5 secondes...")
             await asyncio.sleep(5)
+
+
+async def scan_loop(websocket, host_ip):
+    """
+    Boucle de scan en arrière-plan. Elle s'exécute indépendamment.
+    """
+    while True:
+        try:
+            print(f"Scan automatique : {host_ip}")
+            output_nmap = await run_nmap(host_ip)
+
+            await websocket.send(json.dumps({
+                "status": "auto-scan",
+                "target": host_ip,
+                "scan_target": host_ip,
+                "output": output_nmap
+            }))
+
+            # ===== AUDIT LYNIS =====
+            print("Exécution de l'audit de sécurité Lynis...")
+            output_lynis = await run_lynis(host_ip)
+
+            # Envoyer le résultat de l'audit Lynis au serveur
+            await websocket.send(json.dumps({
+                "status": "lynis-audit",
+                "target": "localhost",
+                "scan_target": host_ip,
+                "output": output_lynis
+            }))
+            print("Résultat Lynis envoyé au serveur.")
+
+            print(f"Attente de {SCAN_INTERVAL} secondes avant le prochain scan...")
+            await asyncio.sleep(SCAN_INTERVAL)
+            
+        except asyncio.CancelledError:
+            print("Scan loop annulée.")
+            break
+        except Exception as e:
+            print(f"Erreur lors du scan: {e}")
+            await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(agent_loop())
