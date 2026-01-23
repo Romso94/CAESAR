@@ -54,63 +54,106 @@
             <article class="card">
                 <div class="card-header">
                     <h2>Agents actifs</h2>
-                    <span class="badge">0 agents</span>
+                    <span class="badge">{{ count }} agent{% if count != 1 %}s{% endif %}</span>
                 </div>
-                <p>Aucun agent n'a encore été créé. Les boutons ci-dessous sont non fonctionnels pour l'instant.</p>
+                {% if count == 0 %}
+                <p>Aucun agent n'est actuellement connecté.</p>
+                {% endif %}
                 
                 <div class="agents-table-wrapper">
                     <table class="agents-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
-                                <th>Nom</th>
-                                <th>Description</th>
+                                <th>Adresse Agent</th>
+                                <th>IP Cible</th>
                                 <th>Statut</th>
-                                <th>Dernière exécution</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
+                            {% if count == 0 %}
                             <tr class="agents-table-empty">
-                                <td colspan="6">
+                                <td colspan="4">
                                     <div class="empty-state">
                                         <p>Aucun agent disponible</p>
-                                        <a href="/app/create" class="btn btn-secondary">Créer votre premier agent</a>
                                     </div>
                                 </td>
                             </tr>
-                            <!-- Exemple de ligne (non fonctionnel, juste pour l'affichage) -->
-                            <!--
+                            {% else %}
+                            {% for agent in agents %}
                             <tr>
-                                <td><code class="agent-id">a1b2c3d4</code></td>
-                                <td>Agent-Pentest-01</td>
-                                <td>Agent de reconnaissance et exploitation</td>
-                                <td><span class="badge badge-ok">Connecté</span></td>
-                                <td>--</td>
+                                <td><code class="agent-id">{{ agent.address }}</code></td>
+                                <td><code class="agent-target">{{ agent.scan_target }}</code></td>
+                                <td><span class="badge badge-ok">{{ agent.status }}</span></td>
                                 <td>
                                     <div class="table-actions">
-                                        <button class="btn btn-sm btn-primary">Run</button>
-                                        <button class="btn btn-sm btn-danger">Delete</button>
+                                        <button class="btn btn-sm btn-primary" onclick="configureAgent('{{ agent.id }}')">Configurer</button>
+                                        <button class="btn btn-sm btn-info" onclick="viewDetails('{{ agent.id }}')">Détails</button>
                                     </div>
                                 </td>
                             </tr>
-                            -->
+                            {% endfor %}
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
             </article>
 
             <article class="card">
-                <h2>Actions en lot</h2>
-                <p>Ces actions ne sont pas encore fonctionnelles.</p>
-                <div class="card-actions">
-                    <button class="btn btn-secondary">Sélectionner tout</button>
-                    <button class="btn btn-primary">Run sélectionnés</button>
-                    <button class="btn btn-danger">Supprimer sélectionnés</button>
+                <h2>Configurer un agent</h2>
+                <p>Modifiez l'adresse IP cible pour les scans.</p>
+                <div class="form-group">
+                    <label for="agent-id-select">Sélectionner un agent :</label>
+                    <select id="agent-id-select">
+                        <option value="">-- Choisir un agent --</option>
+                        {% for agent in agents %}
+                        <option value="{{ agent.id }}">{{ agent.address }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
+                <div class="form-group">
+                    <label for="ip-interface">Nouvelle IP cible :</label>
+                    <input type="text" id="ip-interface" placeholder="ex: 192.168.1.100" />
+                </div>
+                <button class="btn btn-primary" onclick="applyConfiguration()">Appliquer</button>
             </article>
         </section>
     </main>
 </div>
+
+<script>
+function configureAgent(agentId) {
+    const ipInterface = prompt('Entrez la nouvelle IP cible :');
+    if (ipInterface) {
+        applyConfiguration(agentId, ipInterface);
+    }
+}
+
+function applyConfiguration(agentId, ipInterface) {
+    agentId = agentId || document.getElementById('agent-id-select').value;
+    ipInterface = ipInterface || document.getElementById('ip-interface').value;
+    
+    if (!agentId || !ipInterface) {
+        alert('Veuillez remplir tous les champs');
+        return;
+    }
+    
+    fetch(`/api/agents/${agentId}/configure?ip_interface=${encodeURIComponent(ipInterface)}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert('Configuration appliquée : ' + JSON.stringify(data));
+        location.reload();
+    })
+    .catch(error => {
+        alert('Erreur : ' + error);
+    });
+}
+
+function viewDetails(agentId) {
+    window.location.href = `/app/agents/${encodeURIComponent(agentId)}/details`;
+}
+</script>
 </body>
 </html>

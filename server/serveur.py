@@ -1,21 +1,16 @@
 import asyncio
 import os
-import secrets
+import json
 from typing import Dict, Optional
 
 import uvicorn
 import websockets
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
+from fastapi import FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
-
-security = HTTPBearer(auto_error=False)
 app = FastAPI(title="Agent Control API", version="0.1.0")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,16 +22,9 @@ app.mount(
 )
 
 
-# ------------------------------
-# In-memory stores (minimal demo)
-# ------------------------------
-TOKENS: Dict[str, str] = {}
+# In-memory stores
 AGENTS: Dict[str, Dict[str, Optional[str]]] = {}
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
+AGENT_CONNECTIONS: Dict[str, Dict[str, any]] = {}  # Pour tracker les connexions WebSocket et leurs infos
 
 
 class AgentCreateRequest(BaseModel):
@@ -48,38 +36,80 @@ class RunAgentRequest(BaseModel):
     command: str
 
 
-def require_auth(creds: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    if not creds or creds.scheme.lower() != "bearer":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    token = creds.credentials
-    if token not in TOKENS.values():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    return token
-
-
-# ------------------------------
 # WebSocket handler for agents
-# ------------------------------
 async def handler(websocket):
+    agent_id = None
+    scan_target = None
     print(f"Nouvel agent connecté depuis {websocket.remote_address}")
     try:
+        # Enregistrer la connexion de l'agent
+        agent_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        AGENT_CONNECTIONS[agent_id] = {
+            "websocket": websocket,
+            "scan_target": None,
+            "connected_at": None,
+            "last_nmap": None,
+            "last_lynis": None
+        }
+        print(f"Agent {agent_id} enregistré")
+        
         async for message in websocket:
-            print(f"Rapport reçu de l'agent {websocket.remote_address}: {message}")
+            # Extraire scan_target du message pour l'afficher
+            try:
+                data = json.loads(message)
+                scan_target = data.get("scan_target", "inconnue")
+                message_status = data.get("status", "unknown")
+                
+                # Mettre à jour l'IP cible si c'est un message d'initialisation
+                if message_status == "agent-init":
+                    AGENT_CONNECTIONS[agent_id]["scan_target"] = scan_target
+                    print(f"Agent {agent_id} initialisé avec IP cible: {scan_target}")
+                
+                # Stocker les résultats des scans
+                elif message_status == "auto-scan":
+                    output = data.get("output", {})
+                    # S'assurer que c'est un dictionnaire et non une chaîne
+                    if isinstance(output, str):
+                        try:
+                            output = json.loads(output)
+                        except:
+                            output = {}
+                    AGENT_CONNECTIONS[agent_id]["last_nmap"] = output
+                    print(f"Résultat Nmap stocké pour {agent_id}")
+                
+                elif message_status == "lynis-audit":
+                    output = data.get("output", {})
+                    # S'assurer que c'est un dictionnaire et non une chaîne
+                    if isinstance(output, str):
+                        try:
+                            output = json.loads(output)
+                        except:
+                            output = {}
+                    AGENT_CONNECTIONS[agent_id]["last_lynis"] = output
+                    print(f"Résultat Lynis stocké pour {agent_id}")
+                
+                print(f"Rapport reçu de l'agent {websocket.remote_address} ({message_status}) de la machine ('{scan_target}'): {message[:100]}...")
+            except (json.JSONDecodeError, ValueError):
+                print(f"Rapport reçu de l'agent {websocket.remote_address}: {message[:100]}...")
             await websocket.send("Rapport bien reçu.")
     except websockets.exceptions.ConnectionClosedError:
         print(f"Agent {websocket.remote_address} déconnecté.")
-    except Exception as e:  # pragma: no cover - simple log
+    except Exception as e:
         print(f"Une erreur est survenue avec l'agent {websocket.remote_address}: {e}")
+    finally:
+        # Nettoyer la connexion quand l'agent se déconnecte
+        if agent_id and agent_id in AGENT_CONNECTIONS:
+            del AGENT_CONNECTIONS[agent_id]
+            print(f"Connexion de l'agent {agent_id} supprimée")
 
 
 ws_server = None
 
 
+# HTML Routes
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """
-    Page de login minimaliste (front).
-    """
+    """Page de login minimaliste"""
     return templates.TemplateResponse("login.html", {"request": request})
 
 
@@ -89,42 +119,69 @@ async def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ):
-    """
-    Faux login côté front : accepte tout et redirige vers la page d'accueil.
-    La vraie API d'auth reste exposée sur /api/login.
-    """
+    """Faux login côté front : accepte tout et redirige vers la page d'accueil"""
     return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/app", response_class=HTMLResponse)
 async def home_page(request: Request):
-    """
-    Page d'accueil avec sidebar et boutons (non-fonctionnels pour l'instant).
-    """
+    """Page d'accueil avec sidebar et boutons"""
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
 @app.get("/app/create", response_class=HTMLResponse)
 async def create_agent_page(request: Request):
-    """
-    Page de création d'agent (formulaire non fonctionnel).
-    """
+    """Page de création d'agent"""
     return templates.TemplateResponse("create_agent.html", {"request": request})
 
 
 @app.get("/app/agents", response_class=HTMLResponse)
 async def agents_list_page(request: Request):
-    """
-    Page de liste des agents (non fonctionnelle).
-    """
-    return templates.TemplateResponse("agents_list.html", {"request": request})
+    """Page de liste des agents connectés"""
+    agents = [
+        {
+            "id": agent_id,
+            "address": agent_id,
+            "scan_target": info.get("scan_target", "Non configuré"),
+            "status": "online"
+        }
+        for agent_id, info in AGENT_CONNECTIONS.items()
+    ]
+    return templates.TemplateResponse("agents_list.html", {
+        "request": request,
+        "agents": agents,
+        "count": len(agents)
+    })
+
+
+@app.get("/app/agents/{agent_id}/details", response_class=HTMLResponse)
+async def agent_details_page(request: Request, agent_id: str):
+    """Page de détails d'un agent avec résultats des scans"""
+    if agent_id not in AGENT_CONNECTIONS:
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": "Agent non trouvé"
+        })
+    
+    agent_info = AGENT_CONNECTIONS[agent_id]
+    nmap_result = agent_info.get("last_nmap")
+    lynis_result = agent_info.get("last_lynis")
+    
+    return templates.TemplateResponse("agent_details.html", {
+        "request": request,
+        "agent_id": agent_id,
+        "agent_address": agent_id,
+        "scan_target": agent_info.get("scan_target", "Non configuré"),
+        "nmap_result": nmap_result,
+        "lynis_result": lynis_result,
+        "has_nmap": nmap_result is not None,
+        "has_lynis": lynis_result is not None
+    })
 
 
 @app.get("/app/info", response_class=HTMLResponse)
 async def server_info_page(request: Request):
-    """
-    Page d'informations sur le serveur.
-    """
+    """Page d'informations sur le serveur"""
     return templates.TemplateResponse("server_info.html", {"request": request})
 
 
@@ -145,43 +202,55 @@ async def stop_ws_server():
         print("Serveur WebSocket arrêté.")
 
 
-# ------------------------------
-# HTTP API routes
-# ------------------------------
-@app.post("/api/login")
-async def login(payload: LoginRequest):
-    if (
-        payload.username != ADMIN_USERNAME
-        or payload.password != ADMIN_PASSWORD
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Identifiants invalides",
-        )
+# API Routes
+@app.post("/api/agents/{agent_id}/configure")
+async def configure_agent(agent_id: str, ip_interface: str):
+    """
+    Envoie une commande de configuration à un agent connecté.
+    Exemple: POST /api/agents/127.0.0.1:12345/configure?ip_interface=10.0.0.5
+    """
+    if agent_id not in AGENT_CONNECTIONS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent non connecté")
+    
+    agent_info = AGENT_CONNECTIONS[agent_id]
+    websocket = agent_info.get("websocket")
+    
+    try:
+        command = {
+            "type": "configure",
+            "ip_interface": ip_interface
+        }
+        await websocket.send(json.dumps(command))
+        # Mettre à jour l'IP cible en mémoire
+        agent_info["scan_target"] = ip_interface
+        return {"status": "command_sent", "agent_id": agent_id, "ip_interface": ip_interface}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur: {e}")
 
-    token = secrets.token_hex(16)
-    TOKENS[payload.username] = token
-    return {"token": token}
+
+@app.get("/api/agents/connected")
+async def list_connected_agents():
+    """Liste tous les agents actuellement connectés"""
+    return {"agents": list(AGENT_CONNECTIONS.keys()), "count": len(AGENT_CONNECTIONS)}
 
 
 
 @app.post("/agents")
-async def create_agent(payload: AgentCreateRequest, token: str = Depends(require_auth)):
-    agent_id = secrets.token_hex(8)
+async def create_agent(payload: AgentCreateRequest):
+    agent_id = "agent_" + os.urandom(4).hex()
     AGENTS[agent_id] = {"name": payload.name, "description": payload.description, "last_run": None}
     return {"id": agent_id, "name": payload.name, "description": payload.description}
 
 
 @app.get("/agents")
-async def list_agents(token: str = Depends(require_auth)):
+async def list_agents():
     return [{"id": aid, **data} for aid, data in AGENTS.items()]
 
 
 @app.post("/agents/{agent_id}/run")
-async def run_agent(agent_id: str, payload: RunAgentRequest, token: str = Depends(require_auth)):
+async def run_agent(agent_id: str, payload: RunAgentRequest):
     if agent_id not in AGENTS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent introuvable")
-    # Ici vous déclencheriez l'envoi du job vers l'agent via WebSocket/API interne.
     AGENTS[agent_id]["last_run"] = payload.command
     return {"status": "scheduled", "agent_id": agent_id, "command": payload.command}
 
