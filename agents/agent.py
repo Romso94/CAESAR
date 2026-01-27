@@ -6,13 +6,9 @@ import json
 import socket
 import re
 
-# Adresse du serveur WebSocket. Vous pouvez fournir soit une URL complète via
-# `WEBSOCKET_URI` (ex: ws://example.com:8765), soit définir `SERVER_HOST`,
-# `WEBSOCKET_PORT` et `WEBSOCKET_SCHEME`.
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
-WEBSOCKET_SCHEME = os.getenv("WEBSOCKET_SCHEME", "ws")
-WEBSOCKET_URI = os.getenv("WEBSOCKET_URI", None)
+WEBSOCKET_SCHEME = os.getenv("WEBSOCKET_SCHEME", "ws")  # ws ou wss
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
 IP_INTERFACE = os.getenv("IP_INTERFACE", None)  # Permet de forcer une IP cible
 
@@ -477,16 +473,13 @@ async def run_nmap(target: str) -> dict:
         }
   
 async def agent_loop():
-    # Construire l'URI WebSocket : priorité à `WEBSOCKET_URI` si fournie.
-    if WEBSOCKET_URI:
-        uri = WEBSOCKET_URI
-    else:
-        uri = f"{WEBSOCKET_SCHEME}://{SERVER_HOST}:{SERVER_PORT}"
-    print(f"Connexion à {uri}...")
+    uri = f"{WEBSOCKET_SCHEME}://{SERVER_HOST}:{SERVER_PORT}"
     
     # Détecter l'IP de l'hôte une fois au démarrage
     host_ip = get_host_ip()
-    print(f"IP cible pour les scans: {host_ip}")
+    print(f"Configuration de connexion:")
+    print(f"  - Serveur WebSocket: {uri}")
+    print(f"  - IP cible pour les scans: {host_ip}")
 
     while True:
         try:
