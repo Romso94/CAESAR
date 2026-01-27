@@ -4,22 +4,20 @@ import subprocess
 import os
 import json
 import socket
+import re
 
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
+IP_INTERFACE = os.getenv("IP_INTERFACE", None)  # Permet de forcer une IP cible
 
 def get_host_ip():
     """
     Retourne l'IP cible configurée via la variable d'environnement IP_INTERFACE.
-    Lit la variable à chaque appel pour obtenir la valeur courante.
     """
-    ip_interface = os.getenv("IP_INTERFACE")
-    print(f"DEBUG: IP_INTERFACE={repr(ip_interface)}")
-    print(f"DEBUG: Toutes les env vars: {[(k, v) for k, v in os.environ.items() if 'IP' in k or 'SERVER' in k]}")
-    if not ip_interface:
+    if not IP_INTERFACE:
         raise ValueError("IP_INTERFACE doit être définie. Exemple: IP_INTERFACE=192.168.1.132")
-    return ip_interface
+    return IP_INTERFACE
 
 def parse_nmap_output(output: str, target: str) -> dict:
     """
@@ -159,129 +157,234 @@ def parse_nmap_output(output: str, target: str) -> dict:
     
     return result
 
-
-def clean_ansi_codes(text: str) -> str:
+def parse_vuln_output(output: str) -> list:
     """
-    Supprime les codes ANSI (couleurs, formatage) de la sortie.
+    Parse la sortie des scripts NSE vuln de Nmap pour extraire les vulnérabilités.
     """
-    import re
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    return ansi_escape.sub('', text)
-
-
-def parse_lynis_output(output: str) -> dict:
-    """
-    Parse la sortie texte de Lynis et la structure en JSON.
-    Extrait les informations de sécurité de manière structurée.
-    """
-    result = {
-        "target": "localhost",
-        "audit_type": "system-security",
-        "tests": [],
-        "warnings": [],
-        "suggestions": [],
-        "summary": {
-            "total_tests": 0,
-            "passed": 0,
-            "warning": 0,
-            "failed": 0
-        },
-        "sections": {}
-    }
-    
+    vulnerabilities = []
     lines = output.split('\n')
-    current_section = None
+    current_vuln = None
+    current_port = None
+    in_vuln_section = False
+    in_port_section = False
     
-    for line in lines:
+    for i, line in enumerate(lines):
         line_stripped = line.strip()
+        line_orig = line
         
-        # Parser les sections (ex: "System tools")
-        if line.startswith('[') and ']' in line:
-            section_match = line.split(']')
-            if len(section_match) >= 2:
-                current_section = section_match[1].strip()
-                if current_section:
-                    result["sections"][current_section] = {
-                        "tests": [],
-                        "warnings": [],
-                        "suggestions": []
-                    }
+        # Détecter les ports dans la section PORT
+        if "PORT" in line and "STATE" in line and "SERVICE" in line:
+            in_port_section = True
+            continue
         
-        # Parser les tests avec résultats
-        if " [ " in line and " ] " in line:
-            # Format: [TEST-ID] Description [ PASSED/WARNING/FAILED ]
+        if in_port_section and line_stripped and not line_stripped.startswith("-") and "/" in line_stripped:
+            # Parser le port
+            parts = line_stripped.split()
+            if len(parts) >= 2:
+                port_info = parts[0].split('/')
+                if len(port_info) == 2:
+                    try:
+                        current_port = int(port_info[0])
+                    except:
+                        pass
+        
+        # Détecter le début d'une section de script vuln
+        if "|" in line and ("vuln" in line.lower() or "cve" in line.lower() or "VULNERABLE" in line):
+            in_vuln_section = True
+            
+            # Extraire le nom du script (format: | vuln-script-name:)
+            if ":" in line:
+                script_name = line.split(":")[0].replace("|", "").replace("_", "").strip()
+                vuln_desc = line.split(":", 1)[1].strip() if ":" in line else ""
+            else:
+                script_name = line.replace("|", "").replace("_", "").strip()
+                vuln_desc = ""
+            
+            # Extraire les CVE de la ligne
+            cves = re.findall(r'CVE-\d{4}-\d+', line, re.IGNORECASE)
+            
+            # Déterminer la sévérité basée sur les mots-clés
+            severity = "unknown"
+            if any(word in line.lower() for word in ["critical", "critique"]):
+                severity = "critical"
+            elif any(word in line.lower() for word in ["high", "élevé"]):
+                severity = "high"
+            elif any(word in line.lower() for word in ["medium", "moyen"]):
+                severity = "medium"
+            elif any(word in line.lower() for word in ["low", "faible"]):
+                severity = "low"
+            
+            current_vuln = {
+                "title": script_name or "Vulnérabilité détectée",
+                "description": vuln_desc or line_stripped.replace("|", "").replace("_", "").strip(),
+                "cve": cves,
+                "severity": severity,
+                "port": current_port,
+                "raw_line": line_stripped
+            }
+        
+        # Continuer à parser les détails de la vulnérabilité
+        elif current_vuln and line.startswith("|") and in_vuln_section:
+            line_content = line.replace("|", "").replace("_", "").strip()
+            
+            # Extraire plus de CVE
+            cves = re.findall(r'CVE-\d{4}-\d+', line, re.IGNORECASE)
+            if cves:
+                current_vuln["cve"].extend(cves)
+            
+            # Extraire des informations supplémentaires
+            if ":" in line_content:
+                key, value = line_content.split(":", 1)
+                key = key.strip().lower()
+                value = value.strip()
+                
+                if key in ["state", "id", "published", "disclosure"]:
+                    current_vuln[key] = value
+                elif "severity" in key or "risk" in key:
+                    current_vuln["severity"] = value.lower()
+                elif "description" in key or "summary" in key:
+                    if not current_vuln.get("description") or len(value) > len(current_vuln.get("description", "")):
+                        current_vuln["description"] = value
+        
+        # Détecter la fin d'une section de vulnérabilité
+        elif in_vuln_section and (not line.startswith("|") or "Nmap scan report" in line or "Host script results" in line):
+            if current_vuln:
+                # Nettoyer les CVE en double
+                current_vuln["cve"] = list(set(current_vuln["cve"]))
+                vulnerabilities.append(current_vuln)
+                current_vuln = None
+            in_vuln_section = False
+        
+        # Détecter la fin de la section des ports
+        if "Service detection performed" in line or "Nmap done:" in line:
+            in_port_section = False
+    
+    # Ajouter la dernière vulnérabilité si elle existe
+    if current_vuln:
+        current_vuln["cve"] = list(set(current_vuln["cve"]))
+        vulnerabilities.append(current_vuln)
+    
+    return vulnerabilities
+
+async def run_nmap_vuln(target: str, ports: list = None) -> dict:
+    """
+    Exécute un scan Nmap avec les scripts NSE vuln pour détecter les vulnérabilités.
+    """
+    try:
+        # Construire la commande Nmap avec les scripts vuln
+        cmd = ["nmap", "--script", "vuln", "-sV", target]
+        
+        # Si des ports spécifiques sont fournis, les scanner uniquement
+        if ports:
+            port_list = ",".join(str(p) for p in ports)
+            cmd.extend(["-p", port_list])
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120  # Plus de temps pour les scans vuln
+        )
+        
+        stdout_output = result.stdout if result.stdout else ""
+        stderr_output = result.stderr if result.stderr else ""
+        
+        if result.returncode != 0:
+            return {
+                "error": True,
+                "message": f"Erreur lors du scan de vulnérabilités (code {result.returncode})",
+                "stderr": stderr_output
+            }
+        
+        # Parser les vulnérabilités
+        vulnerabilities = parse_vuln_output(stdout_output)
+        
+        return {
+            "error": False,
+            "vulnerabilities": vulnerabilities,
+            "count": len(vulnerabilities),
+            "raw_output": stdout_output
+        }
+        
+    except subprocess.TimeoutExpired:
+        return {
+            "error": True,
+            "message": "Timeout lors du scan de vulnérabilités (dépassement de 120 secondes)",
+            "vulnerabilities": [],
+            "count": 0
+        }
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"Erreur lors du scan de vulnérabilités : {e}",
+            "vulnerabilities": [],
+            "count": 0
+        }
+
+async def run_searchsploit(nmap_result: dict) -> dict:
+    """
+    Utilise searchsploit pour chercher des exploits basés sur les services/versions détectés par Nmap.
+    """
+    exploits = []
+    
+    try:
+        # Extraire les services et versions des ports ouverts
+        for port_data in nmap_result.get("ports", []):
+            service = port_data.get("service", "")
+            version = port_data.get("version", "")
+            
+            if not service or service == "unknown":
+                continue
+            
+            # Construire la requête searchsploit
+            search_term = f"{service} {version}".strip()
+            
             try:
-                # Extraire l'ID du test
-                test_id_start = line.find('[')
-                test_id_end = line.find(']', test_id_start)
-                if test_id_start != -1 and test_id_end != -1:
-                    test_id = line[test_id_start + 1:test_id_end].strip()
-                    
-                    # Extraire le résultat du test
-                    result_start = line.rfind('[')
-                    result_end = line.rfind(']')
-                    if result_start != -1 and result_end != -1:
-                        test_result = line[result_start + 1:result_end].strip()
-                        
-                        # Extraire la description
-                        description = line[test_id_end + 1:result_start].strip()
-                        
-                        test_data = {
-                            "id": test_id,
-                            "description": description,
-                            "result": test_result
-                        }
-                        
-                        # Ajouter aux résultats globaux
-                        result["tests"].append(test_data)
-                        
-                        # Mettre à jour les statistiques
-                        result["summary"]["total_tests"] += 1
-                        if test_result == "PASSED":
-                            result["summary"]["passed"] += 1
-                        elif test_result == "WARNING":
-                            result["summary"]["warning"] += 1
-                            result["warnings"].append(test_data)
-                        elif test_result == "FAILED":
-                            result["summary"]["failed"] += 1
-                        
-                        # Ajouter à la section courante
-                        if current_section and current_section in result["sections"]:
-                            result["sections"][current_section]["tests"].append(test_data)
-            except:
+                result = subprocess.run(
+                    ["searchsploit", "-j", "--nocolor", search_term],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                
+                if result.returncode == 0 and result.stdout:
+                    try:
+                        # Parser le JSON de searchsploit
+                        exploit_data = json.loads(result.stdout)
+                        if "RESULTS_EXPLOIT" in exploit_data and exploit_data["RESULTS_EXPLOIT"]:
+                            for exploit in exploit_data["RESULTS_EXPLOIT"]:
+                                exploits.append({
+                                    "title": exploit.get("Title", ""),
+                                    "edb_id": exploit.get("EDB-ID", ""),
+                                    "cve": exploit.get("Codes", ""),
+                                    "platform": exploit.get("Platform", ""),
+                                    "type": exploit.get("Type", ""),
+                                    "port": port_data.get("port"),
+                                    "service": service,
+                                    "version": version
+                                })
+                    except json.JSONDecodeError:
+                        # Si le parsing JSON échoue, ignorer
+                        pass
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                # searchsploit non disponible ou timeout
+                pass
+            except Exception:
                 pass
         
-        # Parser les avertissements et suggestions
-        if "Warning:" in line or "WARNING:" in line:
-            warning_text = line.replace("Warning:", "").replace("WARNING:", "").strip()
-            if warning_text:
-                result["warnings"].append({
-                    "message": warning_text,
-                    "section": current_section
-                })
+        return {
+            "error": False,
+            "exploits": exploits,
+            "count": len(exploits)
+        }
         
-        if "Suggestion:" in line or "SUGGESTION:" in line:
-            suggestion_text = line.replace("Suggestion:", "").replace("SUGGESTION:", "").strip()
-            if suggestion_text:
-                result["suggestions"].append({
-                    "message": suggestion_text,
-                    "section": current_section
-                })
-        
-        # Parser les informations générales du système
-        if "Hostname:" in line or "OS name:" in line or "OS version:" in line:
-            if "system_info" not in result:
-                result["system_info"] = {}
-            
-            if "Hostname:" in line:
-                result["system_info"]["hostname"] = line.split(":", 1)[1].strip()
-            elif "OS name:" in line:
-                result["system_info"]["os_name"] = line.split(":", 1)[1].strip()
-            elif "OS version:" in line:
-                result["system_info"]["os_version"] = line.split(":", 1)[1].strip()
-    
-    return result
-
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"Erreur lors de la recherche d'exploits : {e}",
+            "exploits": [],
+            "count": 0
+        }
 
 async def run_nmap(target: str) -> dict:
     """
@@ -308,14 +411,14 @@ async def run_nmap(target: str) -> dict:
                 "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
                 "stderr": stderr_output,
                 "target": target,
-                "ip_interface": target
+                "scan_target": target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_nmap_output(stdout_output, target)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
-        parsed_data["ip_interface"] = target  # Ajouter l'IP de la machine cible
+        parsed_data["scan_target"] = target  # Ajouter l'IP de la machine cible
         
         return parsed_data
             
@@ -324,7 +427,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
             "target": target,
-            "ip_interface": target,
+            "scan_target": target,
             "format": "error"
         }
     except FileNotFoundError:
@@ -332,7 +435,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Nmap n'est pas installé sur le système",
             "target": target,
-            "ip_interface": target,
+            "scan_target": target,
             "format": "error"
         }
     except Exception as e:
@@ -340,75 +443,10 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": f"Erreur lors du scan : {e}",
             "target": target,
-            "ip_interface": target,
+            "scan_target": target,
             "format": "error"
         }
-    
-async def run_lynis(scan_target: str) -> dict:
-    """
-    Exécute un audit de sécurité avec Lynis.
-    Analyse la configuration de sécurité du système.
-    Retourne les résultats structurés en JSON.
-    """
-    try:
-        # Commande Lynis avec options :
-        # --no-colors : pas de codes de couleur ANSI
-        # --quiet : mode silencieux
-        # --quick : audit rapide
-        result = subprocess.run(
-            ["lynis", "audit", "system", "--quick", "--no-colors"],
-            capture_output=True,
-            text=True,
-            timeout=120  # Lynis peut être plus lent que nmap
-        )
-        
-        stdout_output = result.stdout if result.stdout else ""
-        stderr_output = result.stderr if result.stderr else ""
-        
-        # Nettoyer les codes ANSI même si --no-colors est fourni
-        stdout_output = clean_ansi_codes(stdout_output)
-        stderr_output = clean_ansi_codes(stderr_output)
-        
-        if result.returncode != 0:
-            return {
-                "error": True,
-                "message": f"Erreur lors de l'exécution de Lynis (code {result.returncode})",
-                "stderr": stderr_output,
-                "format": "error",
-                "ip_interface": scan_target
-            }
-        
-        # Parser la sortie texte et la structurer
-        parsed_data = parse_lynis_output(stdout_output)
-        parsed_data["error"] = False
-        parsed_data["format"] = "structured"
-        parsed_data["ip_interface"] = scan_target  # Ajouter l'IP de la machine cible
-        parsed_data["raw_output"] = stdout_output  # Ajouter aussi la sortie brute pour référence
-        
-        return parsed_data
-        
-    except subprocess.TimeoutExpired:
-        return {
-            "error": True,
-            "message": "Timeout lors de l'audit Lynis (dépassement de 120 secondes)",
-            "format": "error",
-            "ip_interface": scan_target
-        }
-    except FileNotFoundError:
-        return {
-            "error": True,
-            "message": "Lynis n'est pas installé sur le système",
-            "format": "error",
-            "ip_interface": scan_target
-        }
-    except Exception as e:
-        return {
-            "error": True,
-            "message": f"Erreur lors de l'audit : {e}",
-            "format": "error",
-            "ip_interface": scan_target
-        }
-    
+  
 async def agent_loop():
     uri = f"ws://{SERVER_HOST}:{SERVER_PORT}"
     
@@ -425,7 +463,7 @@ async def agent_loop():
                 # Envoyer un message d'initialisation avec l'IP cible
                 await websocket.send(json.dumps({
                     "status": "agent-init",
-                    "ip_interface": host_ip
+                    "scan_target": host_ip
                 }))
                 print(f"Message d'initialisation envoyé avec IP cible: {host_ip}")
                 
@@ -460,7 +498,6 @@ async def agent_loop():
             print(f"Erreur de connexion: {e}. Reconnexion dans 5 secondes...")
             await asyncio.sleep(5)
 
-
 async def scan_loop(websocket, host_ip):
     """
     Boucle de scan en arrière-plan. Elle s'exécute indépendamment.
@@ -468,28 +505,38 @@ async def scan_loop(websocket, host_ip):
     while True:
         try:
             print(f"Scan automatique : {host_ip}")
+            # 1. Scan Nmap initial
             output_nmap = await run_nmap(host_ip)
+            
+            # 2. Scan de vulnérabilités avec NSE vuln si le scan Nmap a réussi
+            vulnerabilities_result = {"error": True, "vulnerabilities": [], "count": 0}
+            if not output_nmap.get("error") and output_nmap.get("ports"):
+                print("Exécution du scan de vulnérabilités NSE...")
+                # Extraire les ports ouverts pour le scan vuln
+                open_ports = [p["port"] for p in output_nmap.get("ports", []) if p.get("state") == "open"]
+                vulnerabilities_result = await run_nmap_vuln(host_ip, open_ports if open_ports else None)
+            
+            # 3. Recherche d'exploits avec searchsploit (optionnel)
+            exploits_result = {"error": True, "exploits": [], "count": 0}
+            if not output_nmap.get("error"):
+                print("Recherche d'exploits avec searchsploit...")
+                exploits_result = await run_searchsploit(output_nmap)
+            
+            # 4. Combiner tous les résultats
+            combined_output = output_nmap.copy()
+            combined_output["vulnerabilities"] = vulnerabilities_result.get("vulnerabilities", [])
+            combined_output["vulnerabilities_count"] = vulnerabilities_result.get("count", 0)
+            combined_output["exploits"] = exploits_result.get("exploits", [])
+            combined_output["exploits_count"] = exploits_result.get("count", 0)
 
             await websocket.send(json.dumps({
                 "status": "auto-scan",
                 "target": host_ip,
-                "ip_interface": host_ip,
-                "output": output_nmap
+                "scan_target": host_ip,
+                "output": combined_output
             }))
 
-            # ===== AUDIT LYNIS =====
-            print("Exécution de l'audit de sécurité Lynis...")
-            output_lynis = await run_lynis(host_ip)
-
-            # Envoyer le résultat de l'audit Lynis au serveur
-            await websocket.send(json.dumps({
-                "status": "lynis-audit",
-                "target": host_ip,
-                "ip_interface": host_ip,
-                "output": output_lynis
-            }))
-            print("Résultat Lynis envoyé au serveur.")
-
+            print(f"Scan terminé. Vulnérabilités: {combined_output['vulnerabilities_count']}, Exploits: {combined_output['exploits_count']}")
             print(f"Attente de {SCAN_INTERVAL} secondes avant le prochain scan...")
             await asyncio.sleep(SCAN_INTERVAL)
             

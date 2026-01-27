@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Inscription</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="app app--auth">
+<div class="auth-wrapper">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h1 class="app-title">CAESAR</h1>
+            <p class="app-subtitle">Créer un compte</p>
+        </div>
+        
+        {% if error %}
+        <div style="background: #d83b01; color: white; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+            {{ error }}
+        </div>
+        {% endif %}
+        
+        <form method="post" action="/register" class="auth-form">
+            <div class="field">
+                <label for="username">Nom d'utilisateur</label>
+                <input id="username" name="username" type="text" placeholder="admin" required minlength="3">
+            </div>
+            <div class="field">
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" placeholder="user@example.com" required>
+            </div>
+            <div class="field">
+                <label for="password">Mot de passe</label>
+                <input id="password" name="password" type="password" placeholder="••••••••" required minlength="6">
+            </div>
+            <div class="field">
+                <label for="password_confirm">Confirmer le mot de passe</label>
+                <input id="password_confirm" name="password_confirm" type="password" placeholder="••••••••" required minlength="6">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">S'inscrire</button>
+        </form>
+        <p class="auth-footnote">
+            Déjà un compte ? <a href="/" style="color: #38bdf8; text-decoration: none;">Se connecter</a>
+        </p>
+    </div>
+</div>
+</body>
+</html>

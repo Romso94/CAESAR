@@ -12,6 +12,18 @@
             <h1 class="app-title">CAESAR</h1>
             <p class="app-subtitle">Control &amp; Assessment Security Agents Runtime</p>
         </div>
+        {% if error %}
+        <div style="background: #d83b01; color: white; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+            {{ error }}
+        </div>
+        {% endif %}
+        
+        {% if request.query_params.get("registered") %}
+        <div style="background: #107c10; color: white; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+            Inscription réussie ! Vous pouvez maintenant vous connecter.
+        </div>
+        {% endif %}
+        
         <form method="post" action="/login" class="auth-form">
             <div class="field">
                 <label for="username">Identifiant</label>
@@ -23,7 +35,9 @@
             </div>
             <button type="submit" class="btn btn-primary btn-full">Se connecter</button>
         </form>
-        <p class="auth-footnote">Démo : les identifiants ne sont pas encore vérifiés.</p>
+        <p class="auth-footnote">
+            Pas encore de compte ? <a href="/register" style="color: #38bdf8; text-decoration: none;">S'inscrire</a>
+        </p>
     </div>
 </div>
 </body>

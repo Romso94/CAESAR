@@ -1,17 +1,58 @@
 import asyncio
 import os
 import json
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 import uvicorn
 import websockets
-from fastapi import FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Form, HTTPException, Request, status, Depends, Cookie, Header
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr
+from motor.motor_asyncio import AsyncIOMotorClient
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+
+# Configuration MongoDB
+MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
+MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
+MONGO_DATABASE = os.getenv("MONGO_DATABASE", "caesar")
+MONGO_USERNAME = os.getenv("MONGO_USERNAME", "admin")
+MONGO_PASSWORD = os.getenv("MONGO_PASSWORD", "admin123")
+
+MONGO_SCANS_HOST = os.getenv("MONGO_SCANS_HOST", "localhost")
+MONGO_SCANS_PORT = int(os.getenv("MONGO_SCANS_PORT", 27018))
+MONGO_SCANS_DATABASE = os.getenv("MONGO_SCANS_DATABASE", "caesar_scans")
+MONGO_SCANS_USERNAME = os.getenv("MONGO_SCANS_USERNAME", "scans")
+MONGO_SCANS_PASSWORD = os.getenv("MONGO_SCANS_PASSWORD", "scans123")
+
+# Configuration JWT
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Connexions MongoDB
+mongo_client = None
+mongo_db = None
+mongo_scans_client = None
+mongo_scans_db = None
+
+# Cryptographie pour les mots de passe
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 app = FastAPI(title="Agent Control API", version="0.1.0")
+
+# Configuration CORS pour permettre les requêtes depuis le frontend React
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
@@ -20,6 +61,52 @@ app.mount(
     StaticFiles(directory=os.path.join(BASE_DIR, "static")),
     name="static",
 )
+
+# Fonctions d'authentification
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: Optional[str] = Cookie(None)):
+    if not token or mongo_db is None:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+    except JWTError:
+        return None
+    
+    try:
+        user = await mongo_db.users.find_one({"username": username})
+        if user:
+            # Retirer le mot de passe hashé du résultat
+            user.pop("hashed_password", None)
+        return user
+    except Exception:
+        return None
+
+
+async def get_current_user_from_header(authorization: Optional[str] = Header(None)):
+    """Récupère l'utilisateur depuis le header Authorization"""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    
+    token = authorization.split(" ")[1]
+    return await get_current_user(token=token)
 
 
 # In-memory stores
@@ -49,7 +136,6 @@ async def handler(websocket):
             "ip_interface": None,
             "connected_at": None,
             "last_nmap": None,
-            "last_lynis": None
         }
         print(f"Agent {agent_id} enregistré")
         
@@ -79,21 +165,23 @@ async def handler(websocket):
                         except:
                             output = {}
                     AGENT_CONNECTIONS[agent_id]["last_nmap"] = output
-                
-                elif message_status == "lynis-audit":
-                    output = data.get("output", {})
-                    # S'assurer que c'est un dictionnaire et non une chaîne
-                    if isinstance(output, str):
+                    
+                    # Sauvegarder les scans dans MongoDB (optionnel)
+                    if mongo_scans_db is not None:
                         try:
-                            output = json.loads(output)
-                        except:
-                            output = {}
-                    AGENT_CONNECTIONS[agent_id]["last_lynis"] = output
-                
-                # Log du message reçu avec l'IP cible à jour
-                print(f"Rapport reçu de l'agent {agent_id} ({message_status}) de la machine ('{scan_target}'): {message[:100]}...")
+                            scan_doc = {
+                                "agent_id": agent_id,
+                                "scan_target": data.get("scan_target", "unknown"),
+                                "timestamp": datetime.utcnow(),
+                                "nmap_result": output,
+                                "vulnerabilities": output.get("vulnerabilities", []),
+                                "exploits": output.get("exploits", [])
+                            }
+                            await mongo_scans_db.scans.insert_one(scan_doc)
+                        except Exception as e:
+                            print(f"Erreur lors de la sauvegarde du scan dans MongoDB: {e}")
             except (json.JSONDecodeError, ValueError):
-                print(f"Rapport reçu de l'agent {agent_id}: {message[:100]}...")
+                print(f"Rapport reçu de l'agent {agent_id}: {message}")
             await websocket.send("Rapport bien reçu.")
     except websockets.exceptions.ConnectionClosedError:
         print(f"Agent {websocket.remote_address} déconnecté.")
@@ -112,8 +200,54 @@ ws_server = None
 # HTML Routes
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """Page de login minimaliste"""
+    """Page de login"""
     return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    """Page d'inscription"""
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@app.post("/register")
+async def register_submit(
+    request: Request,
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+):
+    """Inscription d'un nouvel utilisateur"""
+    # Vérifier que les mots de passe correspondent
+    if password != password_confirm:
+        return templates.TemplateResponse("register.html", {
+            "request": request,
+            "error": "Les mots de passe ne correspondent pas"
+        })
+    
+    # Vérifier si l'utilisateur existe déjà
+    existing_user = await mongo_db.users.find_one({"$or": [{"username": username}, {"email": email}]})
+    if existing_user:
+        return templates.TemplateResponse("register.html", {
+            "request": request,
+            "error": "Un utilisateur avec ce nom ou cet email existe déjà"
+        })
+    
+    # Créer le nouvel utilisateur
+    hashed_password = get_password_hash(password)
+    user = {
+        "username": username,
+        "email": email,
+        "hashed_password": hashed_password,
+        "created_at": datetime.utcnow(),
+        "is_active": True
+    }
+    
+    await mongo_db.users.insert_one(user)
+    
+    # Rediriger vers la page de connexion avec un message de succès
+    return RedirectResponse(url="/?registered=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/login")
@@ -122,24 +256,177 @@ async def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ):
-    """Faux login côté front : accepte tout et redirige vers la page d'accueil"""
-    return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
+    """Connexion d'un utilisateur"""
+    # Chercher l'utilisateur dans la base de données
+    user = await mongo_db.users.find_one({"username": username})
+    
+    if not user or not verify_password(password, user.get("hashed_password", "")):
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Nom d'utilisateur ou mot de passe incorrect"
+        })
+    
+    if not user.get("is_active", True):
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Ce compte est désactivé"
+        })
+    
+    # Créer un token JWT
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]}, expires_delta=access_token_expires
+    )
+    
+    # Rediriger vers l'application avec le token en cookie
+    response = RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(key="token", value=access_token, httponly=True, max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    return response
+
+
+@app.get("/logout")
+async def logout():
+    """Déconnexion"""
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key="token")
+    return response
+
+
+# API Routes pour authentification JSON
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def api_login(login_data: LoginRequest):
+    """API de connexion pour le frontend React"""
+    if not mongo_db:
+        raise HTTPException(status_code=500, detail="Base de données non disponible")
+    
+    # Chercher l'utilisateur dans la base de données
+    user = await mongo_db.users.find_one({"username": login_data.username})
+    
+    if not user or not verify_password(login_data.password, user.get("hashed_password", "")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Nom d'utilisateur ou mot de passe incorrect"
+        )
+    
+    if not user.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ce compte est désactivé"
+        )
+    
+    # Créer un token JWT
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]}, expires_delta=access_token_expires
+    )
+    
+    # Retirer le mot de passe hashé du résultat
+    user.pop("hashed_password", None)
+    
+    return TokenResponse(
+        access_token=access_token,
+        user=user
+    )
+
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+async def api_register(register_data: RegisterRequest):
+    """API d'inscription pour le frontend React"""
+    if not mongo_db:
+        raise HTTPException(status_code=500, detail="Base de données non disponible")
+    
+    # Vérifier que les mots de passe correspondent
+    if register_data.password != register_data.password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Les mots de passe ne correspondent pas"
+        )
+    
+    # Vérifier si l'utilisateur existe déjà
+    existing_user = await mongo_db.users.find_one({
+        "$or": [
+            {"username": register_data.username},
+            {"email": register_data.email}
+        ]
+    })
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Un utilisateur avec ce nom ou cet email existe déjà"
+        )
+    
+    # Créer le nouvel utilisateur
+    hashed_password = get_password_hash(register_data.password)
+    user = {
+        "username": register_data.username,
+        "email": register_data.email,
+        "hashed_password": hashed_password,
+        "created_at": datetime.utcnow(),
+        "is_active": True
+    }
+    
+    await mongo_db.users.insert_one(user)
+    
+    # Créer un token JWT pour connecter automatiquement l'utilisateur
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]}, expires_delta=access_token_expires
+    )
+    
+    # Retirer le mot de passe hashé du résultat
+    user.pop("hashed_password", None)
+    
+    return TokenResponse(
+        access_token=access_token,
+        user=user
+    )
+
+
+@app.post("/api/auth/logout")
+async def api_logout():
+    """API de déconnexion pour le frontend React"""
+    return {"message": "Déconnexion réussie"}
+
+
+async def get_current_user_from_header(authorization: Optional[str] = Header(None)):
+    """Récupère l'utilisateur depuis le header Authorization"""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    
+    token = authorization.split(" ")[1]
+    return await get_current_user(token=token)
+
+
+@app.get("/api/auth/me")
+async def api_get_current_user(user: Optional[dict] = Depends(get_current_user_from_header)):
+    """API pour obtenir les informations de l'utilisateur actuel"""
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token manquant, invalide ou expiré"
+        )
+    
+    return {"user": user}
 
 
 @app.get("/app", response_class=HTMLResponse)
-async def home_page(request: Request):
+async def home_page(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
     """Page d'accueil avec sidebar et boutons"""
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    if not current_user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": current_user})
 
 
 @app.get("/app/create", response_class=HTMLResponse)
-async def create_agent_page(request: Request):
+async def create_agent_page(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
     """Page de création d'agent"""
-    return templates.TemplateResponse("create_agent.html", {"request": request})
+    if not current_user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("create_agent.html", {"request": request, "user": current_user})
 
 
 @app.get("/app/agents", response_class=HTMLResponse)
-async def agents_list_page(request: Request):
+async def agents_list_page(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
     """Page de liste des agents connectés"""
     agents = [
         {
@@ -158,7 +445,7 @@ async def agents_list_page(request: Request):
 
 
 @app.get("/app/agents/{agent_id}/details", response_class=HTMLResponse)
-async def agent_details_page(request: Request, agent_id: str):
+async def agent_details_page(request: Request, agent_id: str, current_user: Optional[dict] = Depends(get_current_user)):
     """Page de détails d'un agent avec résultats des scans"""
     if agent_id not in AGENT_CONNECTIONS:
         return templates.TemplateResponse("error.html", {
@@ -168,7 +455,13 @@ async def agent_details_page(request: Request, agent_id: str):
     
     agent_info = AGENT_CONNECTIONS[agent_id]
     nmap_result = agent_info.get("last_nmap")
-    lynis_result = agent_info.get("last_lynis")
+    
+    # Extraire les vulnérabilités et exploits du résultat
+    vulnerabilities = []
+    exploits = []
+    if nmap_result and isinstance(nmap_result, dict):
+        vulnerabilities = nmap_result.get("vulnerabilities", [])
+        exploits = nmap_result.get("exploits", [])
     
     return templates.TemplateResponse("agent_details.html", {
         "request": request,
@@ -176,26 +469,69 @@ async def agent_details_page(request: Request, agent_id: str):
         "agent_address": agent_id,
         "scan_target": agent_info.get("ip_interface", "Non configuré"),
         "nmap_result": nmap_result,
-        "lynis_result": lynis_result,
         "has_nmap": nmap_result is not None,
-        "has_lynis": lynis_result is not None
+        "vulnerabilities": vulnerabilities,
+        "vulnerabilities_count": len(vulnerabilities),
+        "exploits": exploits,
+        "exploits_count": len(exploits)
     })
 
 
 @app.get("/app/info", response_class=HTMLResponse)
-async def server_info_page(request: Request):
+async def server_info_page(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
     """Page d'informations sur le serveur"""
-    return templates.TemplateResponse("server_info.html", {"request": request})
-
+    if not current_user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse("server_info.html", {"request": request, "user": current_user})
 
 @app.on_event("startup")
-async def start_ws_server():
-    global ws_server
+async def startup_event():
+    """Initialisation des connexions MongoDB et WebSocket au démarrage"""
+    global mongo_client, mongo_db, mongo_scans_client, mongo_scans_db, ws_server
+    
+    # Connexion MongoDB principale (utilisateurs)
+    mongo_uri = f"mongodb://{MONGO_USERNAME}:{MONGO_PASSWORD}@{MONGO_HOST}:{MONGO_PORT}/{MONGO_DATABASE}?authSource=admin"
+    mongo_client = AsyncIOMotorClient(mongo_uri)
+    mongo_db = mongo_client[MONGO_DATABASE]
+    
+    # Connexion MongoDB scans
+    mongo_scans_uri = f"mongodb://{MONGO_SCANS_USERNAME}:{MONGO_SCANS_PASSWORD}@{MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}/{MONGO_SCANS_DATABASE}?authSource=admin"
+    mongo_scans_client = AsyncIOMotorClient(mongo_scans_uri)
+    mongo_scans_db = mongo_scans_client[MONGO_SCANS_DATABASE]
+    
+    # Créer les index pour les collections
+    await mongo_db.users.create_index("username", unique=True)
+    await mongo_db.users.create_index("email", unique=True)
+    
+    print(f"Connecté à MongoDB: {MONGO_DATABASE} sur {MONGO_HOST}:{MONGO_PORT}")
+    print(f"Connecté à MongoDB Scans: {MONGO_SCANS_DATABASE} sur {MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}")
+    
+    # Démarrer le serveur WebSocket
     host = os.getenv("WEBSOCKET_HOST", "0.0.0.0")
     port = int(os.getenv("WEBSOCKET_PORT", 8765))
     print(f"Démarrage du serveur WebSocket sur {host}:{port}...")
-    ws_server = await websockets.serve(handler, host, port)
+    ws_server = await websockets.serve(
+        handler, 
+        host, 
+        port, 
+        max_size=10 * 1024 * 1024  # 10 MB
+    )
 
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Fermeture des connexions MongoDB et WebSocket à l'arrêt"""
+    global mongo_client, mongo_scans_client, ws_server
+    
+    if mongo_client:
+        mongo_client.close()
+    if mongo_scans_client:
+        mongo_scans_client.close()
+    
+    if ws_server is not None:
+        ws_server.close()
+        await ws_server.wait_closed()
+        print("Serveur WebSocket arrêté.")
 
 @app.on_event("shutdown")
 async def stop_ws_server():

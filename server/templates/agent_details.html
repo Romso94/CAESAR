@@ -15,21 +15,22 @@
         }
         .result-header h3 {
             margin: 0;
-            color: #0078d4;
+            color: #ffffff;
         }
         .no-data {
             padding: 2rem;
             text-align: center;
-            background: #f5f5f5;
+            background: rgba(15, 23, 42, 0.96);
             border-radius: 4px;
             color: #666;
+            border: 1px solid rgba(148, 163, 184, 0.3);
         }
         .port-item {
             padding: 1rem;
-            border: 1px solid #e0e0e0;
+            border: 1px solid rgba(148, 163, 184, 0.3);
             border-radius: 4px;
             margin: 0.5rem 0;
-            background: #fafafa;
+            background: rgba(15, 23, 42, 0.96);
         }
         .port-status.open {
             color: #107c10;
@@ -50,18 +51,19 @@
             margin: 1rem 0;
         }
         .summary-item {
-            background: #f5f5f5;
+            background: rgba(15, 23, 42, 0.96);
             padding: 1rem;
             border-radius: 4px;
             text-align: center;
+            border: 1px solid rgba(148, 163, 184, 0.3);
         }
         .summary-item .value {
             font-size: 1.5rem;
             font-weight: bold;
-            color: #0078d4;
+            color: #ffffff;
         }
         .summary-item .label {
-            color: #666;
+            color: #ffffff;
             font-size: 0.9rem;
             margin-top: 0.5rem;
         }
@@ -106,8 +108,111 @@
         .back-button {
             margin-bottom: 1rem;
         }
+        .loader {
+            border: 4px solid rgba(148, 163, 184, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #38bdf8;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            text-align: center;
+        }
+        .loading-container p {
+            margin-top: 1rem;
+            color: #9ca3af;
+        }
+        .vuln-item {
+            padding: 1rem;
+            border-left: 4px solid #d83b01;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        .vuln-item.critical {
+            border-left-color: #d83b01;
+        }
+        .vuln-item.high {
+            border-left-color: #ff8c00;
+        }
+        .vuln-item.medium {
+            border-left-color: #ffb900;
+        }
+        .vuln-item.low {
+            border-left-color: #107c10;
+        }
+        .vuln-item.unknown {
+            border-left-color: #666;
+        }
+        .severity-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 3px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            margin-left: 0.5rem;
+        }
+        .severity-badge.critical {
+            background: #d83b01;
+            color: white;
+        }
+        .severity-badge.high {
+            background: #ff8c00;
+            color: white;
+        }
+        .severity-badge.medium {
+            background: #ffb900;
+            color: white;
+        }
+        .severity-badge.low {
+            background: #107c10;
+            color: white;
+        }
+        .severity-badge.unknown {
+            background: #666;
+            color: white;
+        }
+        .cve-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            background: rgba(148, 163, 184, 0.2);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 3px;
+            font-size: 0.8rem;
+            font-family: monospace;
+            margin: 0.25rem 0.25rem 0.25rem 0;
+            color: #38bdf8;
+        }
+        .exploit-item {
+            padding: 1rem;
+            border-left: 4px solid #0078d4;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        .edb-link {
+            color: #38bdf8;
+            text-decoration: none;
+        }
+        .edb-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
+
 <body class="app">
 <div class="layout">
     <aside class="sidebar">
@@ -144,8 +249,9 @@
                 <h1 class="main-title">Détails de l'agent</h1>
                 <p class="main-subtitle">Résultats des scans pour {{ agent_address }}</p>
             </div>
-            <div>
+            <div class="header-actions">
                 <a href="/app/agents" class="btn btn-secondary back-button">← Retour</a>
+                <a href="/logout" class="btn btn-secondary">Déconnexion</a>
             </div>
         </header>
 
@@ -166,7 +272,7 @@
         </section>
 
         <!-- Résultats Nmap -->
-        <section class="details-section">
+        <section class="details-section" data-has-nmap="{% if has_nmap and nmap_result %}true{% else %}false{% endif %}">
             <article class="card">
                 <div class="result-header">
                     <h3>Résultats Nmap</h3>
@@ -178,7 +284,7 @@
                             <p><strong>Erreur :</strong> {{ nmap_result.message }}</p>
                         </div>
                     {% elif nmap_result is mapping %}
-                        <!-- Résumé -->
+                        <!-- Résumé des ports -->
                         <div class="summary-grid">
                             <div class="summary-item">
                                 <div class="value">{{ nmap_result.summary.total_ports_scanned }}</div>
@@ -197,19 +303,6 @@
                                 <div class="label">Ports filtrés</div>
                             </div>
                         </div>
-
-                        <!-- Informations d'hôte -->
-                        {% if nmap_result.host_status %}
-                        <div style="margin-top: 1.5rem;">
-                            <h4>Statut de l'hôte</h4>
-                            <p>
-                                <strong>Statut :</strong> <span class="badge badge-ok">{{ nmap_result.host_status }}</span>
-                                {% if nmap_result.latency %}
-                                <br><strong>Latence :</strong> {{ nmap_result.latency }}
-                                {% endif %}
-                            </p>
-                        </div>
-                        {% endif %}
 
                         <!-- Ports ouverts -->
                         {% if nmap_result.ports %}
@@ -240,120 +333,142 @@
                         {% endif %}
                     {% endif %}
                 {% else %}
-                    <div class="no-data">
-                        <p>Aucun résultat Nmap disponible. L'agent n'a pas encore envoyé de rapport.</p>
+                    <div class="loading-container">
+                        <div class="loader"></div>
+                        <p>Scan Nmap en cours...</p>
                     </div>
                 {% endif %}
             </article>
         </section>
 
-        <!-- Résultats Lynis -->
+        <!-- Vulnérabilités détectées -->
+        {% if has_nmap and nmap_result %}
         <section class="details-section">
             <article class="card">
                 <div class="result-header">
-                    <h3>Résultats Lynis</h3>
+                    <h3>Vulnérabilités détectées ({{ vulnerabilities_count }})</h3>
                 </div>
                 
-                {% if has_lynis and lynis_result %}
-                    {% if lynis_result is mapping %}
-                        {% if lynis_result.error %}
-                            <div class="no-data">
-                                <p><strong>Erreur :</strong> {{ lynis_result.message }}</p>
-                            </div>
-                        {% elif lynis_result.summary %}
-                            <!-- Résumé -->
-                            <div class="summary-grid">
-                            <div class="summary-item">
-                                <div class="value">{{ lynis_result.summary.total_tests }}</div>
-                                <div class="label">Tests exécutés</div>
-                            </div>
-                            <div class="summary-item">
-                                <div class="value" style="color: #107c10;">{{ lynis_result.summary.passed }}</div>
-                                <div class="label">Tests réussis</div>
-                            </div>
-                            <div class="summary-item">
-                                <div class="value" style="color: #ff8c00;">{{ lynis_result.summary.warning }}</div>
-                                <div class="label">Avertissements</div>
-                            </div>
-                            <div class="summary-item">
-                                <div class="value" style="color: #d83b01;">{{ lynis_result.summary.failed }}</div>
-                                <div class="label">Tests échoués</div>
-                            </div>
-                            </div>
-
-                            <!-- Informations système -->
-                            {% if lynis_result.system_info %}
-                            <div style="margin-top: 1.5rem;">
-                                <h4>Informations système</h4>
-                                {% for key, value in lynis_result.system_info.items() %}
-                                <p><strong>{{ key }} :</strong> {{ value }}</p>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-
-                            <!-- Tests par section -->
-                            {% if lynis_result.sections %}
-                            <div style="margin-top: 1.5rem;">
-                                <h4>Tests de sécurité</h4>
-                                {% for section_name, section_data in lynis_result.sections.items() %}
-                                {% if section_data.tests %}
-                                <div style="margin-top: 1rem;">
-                                    <h5>{{ section_name }}</h5>
-                                    {% for test in section_data.tests %}
-                                    <div class="test-item {{ test.result|lower }}">
-                                        <div>
-                                            <strong>{{ test.id }}</strong><br>
-                                            <small>{{ test.description }}</small>
-                                        </div>
-                                        <span class="badge-result {{ test.result|lower }}">{{ test.result }}</span>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                                {% endif %}
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-
-                            <!-- Avertissements et suggestions -->
-                            {% if lynis_result.warnings %}
-                            <div style="margin-top: 1.5rem;">
-                                <h4>⚠️ Avertissements</h4>
-                                {% for warning in lynis_result.warnings %}
-                                <div class="test-item warning">
-                                    <div>{{ warning.message }}</div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-
-                            {% if lynis_result.suggestions %}
-                            <div style="margin-top: 1.5rem;">
-                                <h4>💡 Suggestions</h4>
-                                {% for suggestion in lynis_result.suggestions %}
-                                <div class="test-item">
-                                    <div>{{ suggestion.message }}</div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% endif %}
-                        {% else %}
-                            <div class="no-data">
-                                <p>Pas de résumé disponible pour les résultats Lynis.</p>
-                            </div>
+                {% if vulnerabilities_count > 0 %}
+                {% for vuln in vulnerabilities %}
+                <div class="vuln-item {{ vuln.severity or 'unknown' }}">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; color: #ffffff;">
+                            {{ vuln.title }}
+                            <span class="severity-badge {{ vuln.severity or 'unknown' }}">
+                                {{ (vuln.severity or 'unknown').upper() }}
+                            </span>
+                        </h4>
+                        {% if vuln.port %}
+                        <span style="color: #9ca3af; font-size: 0.9rem;">Port: {{ vuln.port }}</span>
                         {% endif %}
-                    {% else %}
-                        <div class="no-data">
-                            <p>Données Lynis invalides ou non disponibles.</p>
-                        </div>
-                    {% endif %}
-                {% else %}
-                    <div class="no-data">
-                        <p>Aucun résultat Lynis disponible. L'agent n'a pas encore envoyé de rapport.</p>
                     </div>
+                    
+                    {% if vuln.description %}
+                    <p style="color: #d1d5db; margin: 0.5rem 0;">{{ vuln.description }}</p>
+                    {% endif %}
+                    
+                    {% if vuln.cve and vuln.cve|length > 0 %}
+                    <div style="margin-top: 0.75rem;">
+                        <strong style="color: #ffffff;">CVE :</strong>
+                        {% for cve in vuln.cve %}
+                        <span class="cve-badge">{{ cve }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="no-data">
+                    <p>Aucune vulnérabilité détectée par les scripts NSE vuln.</p>
+                </div>
                 {% endif %}
             </article>
         </section>
+        {% endif %}
+
+        <!-- Exploits trouvés (Searchsploit) -->
+        {% if has_nmap and nmap_result %}
+        <section class="details-section">
+            <article class="card">
+                <div class="result-header">
+                    <h3>Exploits disponibles ({{ exploits_count }})</h3>
+                </div>
+                
+                {% if exploits_count > 0 %}
+                {% for exploit in exploits %}
+                <div class="exploit-item">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; color: #ffffff;">{{ exploit.title }}</h4>
+                        {% if exploit.edb_id %}
+                        <a href="https://www.exploit-db.com/exploits/{{ exploit.edb_id }}" 
+                           target="_blank" 
+                           class="edb-link">
+                            EDB-{{ exploit.edb_id }}
+                        </a>
+                        {% endif %}
+                    </div>
+                    
+                    <div style="margin-top: 0.5rem; color: #9ca3af; font-size: 0.9rem;">
+                        {% if exploit.service %}
+                        <strong>Service :</strong> {{ exploit.service }}
+                        {% endif %}
+                        {% if exploit.version %}
+                        <span style="margin-left: 1rem;"><strong>Version :</strong> {{ exploit.version }}</span>
+                        {% endif %}
+                        {% if exploit.port %}
+                        <span style="margin-left: 1rem;"><strong>Port :</strong> {{ exploit.port }}</span>
+                        {% endif %}
+                    </div>
+                    
+                    {% if exploit.cve %}
+                    <div style="margin-top: 0.75rem;">
+                        <strong style="color: #ffffff;">CVE :</strong>
+                        <span class="cve-badge">{{ exploit.cve }}</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if exploit.platform %}
+                    <div style="margin-top: 0.5rem; color: #9ca3af; font-size: 0.9rem;">
+                        <strong>Platform :</strong> {{ exploit.platform }}
+                    </div>
+                    {% endif %}
+                    
+                    {% if exploit.type %}
+                    <div style="margin-top: 0.5rem; color: #9ca3af; font-size: 0.9rem;">
+                        <strong>Type :</strong> {{ exploit.type }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="no-data">
+                    <p>Aucun exploit trouvé dans Exploit-DB pour les services détectés.</p>
+                </div>
+                {% endif %}
+            </article>
+        </section>
+        {% endif %}
+
     </main>
 </div>
+
+<script>
+    // Actualiser la page toutes les 3 secondes si les données ne sont pas encore disponibles
+    function checkAndReload() {
+        // Vérifier si Nmap ou Lynis est en chargement
+        const hasNmapData = document.querySelector('[data-has-nmap="true"]');
+        
+        if (!hasNmapData) {
+            // Les données ne sont pas encore disponibles, actualiser après 3 secondes
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+        }
+    }
+    
+    // Lancer la vérification au chargement
+    window.addEventListener('DOMContentLoaded', checkAndReload);
+</script>
 </body>
 </html>

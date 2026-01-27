@@ -3,3 +3,7 @@ uvicorn
 websockets
 jinja2
 python-multipart
+motor
+pymongo
+passlib[argon2]
+python-jose[cryptography]
