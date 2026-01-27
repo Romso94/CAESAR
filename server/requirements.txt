@@ -7,3 +7,4 @@ motor
 pymongo
 passlib[argon2]
 python-jose[cryptography]
+email-validator

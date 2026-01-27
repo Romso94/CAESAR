@@ -3,6 +3,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from typing import Dict, Optional
+from contextlib import asynccontextmanager
 
 import uvicorn
 import websockets
@@ -43,7 +44,55 @@ mongo_scans_db = None
 # Cryptographie pour les mots de passe
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-app = FastAPI(title="Agent Control API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler to initialize and tear down resources."""
+    global mongo_client, mongo_db, mongo_scans_client, mongo_scans_db, ws_server
+
+    # Connexion MongoDB principale (utilisateurs)
+    mongo_uri = f"mongodb://{MONGO_USERNAME}:{MONGO_PASSWORD}@{MONGO_HOST}:{MONGO_PORT}/{MONGO_DATABASE}?authSource=admin"
+    mongo_client = AsyncIOMotorClient(mongo_uri)
+    mongo_db = mongo_client[MONGO_DATABASE]
+
+    # Connexion MongoDB scans
+    mongo_scans_uri = f"mongodb://{MONGO_SCANS_USERNAME}:{MONGO_SCANS_PASSWORD}@{MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}/{MONGO_SCANS_DATABASE}?authSource=admin"
+    mongo_scans_client = AsyncIOMotorClient(mongo_scans_uri)
+    mongo_scans_db = mongo_scans_client[MONGO_SCANS_DATABASE]
+
+    # Créer les index pour les collections
+    await mongo_db.users.create_index("username", unique=True)
+    await mongo_db.users.create_index("email", unique=True)
+
+    print(f"Connecté à MongoDB: {MONGO_DATABASE} sur {MONGO_HOST}:{MONGO_PORT}")
+    print(f"Connecté à MongoDB Scans: {MONGO_SCANS_DATABASE} sur {MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}")
+
+    # Démarrer le serveur WebSocket
+    host = os.getenv("WEBSOCKET_HOST", "0.0.0.0")
+    port = int(os.getenv("WEBSOCKET_PORT", 8765))
+    print(f"Démarrage du serveur WebSocket sur {host}:{port}...")
+    ws_server = await websockets.serve(
+        handler,
+        host,
+        port,
+        max_size=10 * 1024 * 1024  # 10 MB
+    )
+
+    try:
+        yield
+    finally:
+        if mongo_client:
+            mongo_client.close()
+        if mongo_scans_client:
+            mongo_scans_client.close()
+
+        if ws_server is not None:
+            ws_server.close()
+            await ws_server.wait_closed()
+            print("Serveur WebSocket arrêté.")
+
+
+app = FastAPI(title="Agent Control API", version="0.1.0", lifespan=lifespan)
 
 # Configuration CORS pour permettre les requêtes depuis le frontend React
 app.add_middleware(
@@ -123,6 +172,24 @@ class RunAgentRequest(BaseModel):
     command: str
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+    password_confirm: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Dict
+
+
 # WebSocket handler for agents
 async def handler(websocket):
     agent_id = None
@@ -182,7 +249,7 @@ async def handler(websocket):
                             print(f"Erreur lors de la sauvegarde du scan dans MongoDB: {e}")
             except (json.JSONDecodeError, ValueError):
                 print(f"Rapport reçu de l'agent {agent_id}: {message}")
-            await websocket.send("Rapport bien reçu.")
+            await websocket.send(json.dumps({"status": "ok", "message": "Rapport bien reçu."}))
     except websockets.exceptions.ConnectionClosedError:
         print(f"Agent {websocket.remote_address} déconnecté.")
     except Exception as e:
@@ -484,61 +551,7 @@ async def server_info_page(request: Request, current_user: Optional[dict] = Depe
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("server_info.html", {"request": request, "user": current_user})
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialisation des connexions MongoDB et WebSocket au démarrage"""
-    global mongo_client, mongo_db, mongo_scans_client, mongo_scans_db, ws_server
-    
-    # Connexion MongoDB principale (utilisateurs)
-    mongo_uri = f"mongodb://{MONGO_USERNAME}:{MONGO_PASSWORD}@{MONGO_HOST}:{MONGO_PORT}/{MONGO_DATABASE}?authSource=admin"
-    mongo_client = AsyncIOMotorClient(mongo_uri)
-    mongo_db = mongo_client[MONGO_DATABASE]
-    
-    # Connexion MongoDB scans
-    mongo_scans_uri = f"mongodb://{MONGO_SCANS_USERNAME}:{MONGO_SCANS_PASSWORD}@{MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}/{MONGO_SCANS_DATABASE}?authSource=admin"
-    mongo_scans_client = AsyncIOMotorClient(mongo_scans_uri)
-    mongo_scans_db = mongo_scans_client[MONGO_SCANS_DATABASE]
-    
-    # Créer les index pour les collections
-    await mongo_db.users.create_index("username", unique=True)
-    await mongo_db.users.create_index("email", unique=True)
-    
-    print(f"Connecté à MongoDB: {MONGO_DATABASE} sur {MONGO_HOST}:{MONGO_PORT}")
-    print(f"Connecté à MongoDB Scans: {MONGO_SCANS_DATABASE} sur {MONGO_SCANS_HOST}:{MONGO_SCANS_PORT}")
-    
-    # Démarrer le serveur WebSocket
-    host = os.getenv("WEBSOCKET_HOST", "0.0.0.0")
-    port = int(os.getenv("WEBSOCKET_PORT", 8765))
-    print(f"Démarrage du serveur WebSocket sur {host}:{port}...")
-    ws_server = await websockets.serve(
-        handler, 
-        host, 
-        port, 
-        max_size=10 * 1024 * 1024  # 10 MB
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Fermeture des connexions MongoDB et WebSocket à l'arrêt"""
-    global mongo_client, mongo_scans_client, ws_server
-    
-    if mongo_client:
-        mongo_client.close()
-    if mongo_scans_client:
-        mongo_scans_client.close()
-    
-    if ws_server is not None:
-        ws_server.close()
-        await ws_server.wait_closed()
-        print("Serveur WebSocket arrêté.")
-
-@app.on_event("shutdown")
-async def stop_ws_server():
-    if ws_server is not None:
-        ws_server.close()
-        await ws_server.wait_closed()
-        print("Serveur WebSocket arrêté.")
+# Lifespan handler above takes care of startup/shutdown tasks.
 
 
 # API Routes

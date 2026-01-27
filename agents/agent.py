@@ -6,8 +6,13 @@ import json
 import socket
 import re
 
+# Adresse du serveur WebSocket. Vous pouvez fournir soit une URL complète via
+# `WEBSOCKET_URI` (ex: ws://example.com:8765), soit définir `SERVER_HOST`,
+# `WEBSOCKET_PORT` et `WEBSOCKET_SCHEME`.
 SERVER_HOST = os.getenv("SERVER_HOST", "localhost")
 SERVER_PORT = os.getenv("WEBSOCKET_PORT", "8765")
+WEBSOCKET_SCHEME = os.getenv("WEBSOCKET_SCHEME", "ws")
+WEBSOCKET_URI = os.getenv("WEBSOCKET_URI", None)
 SCAN_INTERVAL = int(os.getenv("SCAN_INTERVAL", "300"))
 IP_INTERFACE = os.getenv("IP_INTERFACE", None)  # Permet de forcer une IP cible
 
@@ -279,12 +284,21 @@ async def run_nmap_vuln(target: str, ports: list = None) -> dict:
             port_list = ",".join(str(p) for p in ports)
             cmd.extend(["-p", port_list])
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # Plus de temps pour les scans vuln
-        )
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120  # Plus de temps pour les scans vuln
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "error": True,
+                "message": "Timeout lors du scan de vulnérabilités (dépassement de 120 secondes)",
+                "vulnerabilities": [],
+                "count": 0
+            }
         
         stdout_output = result.stdout if result.stdout else ""
         stderr_output = result.stderr if result.stderr else ""
@@ -340,12 +354,17 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             search_term = f"{service} {version}".strip()
             
             try:
-                result = subprocess.run(
-                    ["searchsploit", "-j", "--nocolor", search_term],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
+                try:
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["searchsploit", "-j", "--nocolor", search_term],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    # searchsploit non disponible ou timeout
+                    continue
                 
                 if result.returncode == 0 and result.stdout:
                     try:
@@ -395,12 +414,22 @@ async def run_nmap(target: str) -> dict:
         # Exécuter Nmap avec sortie texte standard
         # -sV : détection de version
         # -sC : exécution des scripts par défaut
-        result = subprocess.run(
-            ["nmap", "-sV", "-sC", target],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["nmap", "-sV", "-sC", target],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "error": True,
+                "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
+                "target": target,
+                "scan_target": target,
+                "format": "error"
+            }
         
         stdout_output = result.stdout if result.stdout else ""
         stderr_output = result.stderr if result.stderr else ""
@@ -448,7 +477,12 @@ async def run_nmap(target: str) -> dict:
         }
   
 async def agent_loop():
-    uri = f"ws://{SERVER_HOST}:{SERVER_PORT}"
+    # Construire l'URI WebSocket : priorité à `WEBSOCKET_URI` si fournie.
+    if WEBSOCKET_URI:
+        uri = WEBSOCKET_URI
+    else:
+        uri = f"{WEBSOCKET_SCHEME}://{SERVER_HOST}:{SERVER_PORT}"
+    print(f"Connexion à {uri}...")
     
     # Détecter l'IP de l'hôte une fois au démarrage
     host_ip = get_host_ip()
