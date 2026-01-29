@@ -228,9 +228,17 @@
                 <span class="nav-dot"></span>
                 <span>Accueil</span>
             </a>
+            <a href="/app/create" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
             <a href="/app/agents" class="nav-item nav-item--active">
                 <span class="nav-dot"></span>
                 <span>Liste des agents</span>
+            </a>
+            <a href="/app/history" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Historique</span>
             </a>
             <a href="/app/info" class="nav-item">
                 <span class="nav-dot"></span>
@@ -247,7 +255,6 @@
         <header class="main-header">
             <div>
                 <h1 class="main-title">Détails de l'agent</h1>
-                <p class="main-subtitle">Résultats des scans pour {{ agent_address }}</p>
             </div>
             <div class="header-actions">
                 {% if has_nmap and nmap_result %}
@@ -265,12 +272,12 @@
                 <h2>Informations de l'agent</h2>
                 <div class="summary-grid">
                     <div class="summary-item">
-                        <div class="value">{{ agent_address }}</div>
-                        <div class="label">Adresse de l'agent</div>
+                        <div class="value">{{ scan_target }}</div>
+                        <div class="label">IP Machine</div>
                     </div>
                     <div class="summary-item">
-                        <div class="value">{{ scan_target }}</div>
-                        <div class="label">IP cible</div>
+                        <div class="value">{{ agent_address }}</div>
+                        <div class="label">IP agent</div>
                     </div>
                 </div>
             </article>
@@ -292,7 +299,7 @@
                         <!-- Résumé des ports -->
                         <div class="summary-grid">
                             <div class="summary-item">
-                                <div class="value">{{ nmap_result.summary.total_ports_scanned }}</div>
+                                <div class="value">{{1000}}</div>
                                 <div class="label">Ports scannés</div>
                             </div>
                             <div class="summary-item">

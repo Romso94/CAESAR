@@ -460,7 +460,7 @@ class SecurityAuditReportGenerator:
 
 # Configuration MongoDB
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
+MONGO_PORT = int(os.getenv("MONGO_PORT", 27019))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "caesar")
 MONGO_USERNAME = os.getenv("MONGO_USERNAME", "admin")
 MONGO_PASSWORD = os.getenv("MONGO_PASSWORD", "admin123")
@@ -634,34 +634,75 @@ class TokenResponse(BaseModel):
 # WebSocket handler for agents
 async def handler(websocket):
     agent_id = None
-    scan_target = "inconnue"
+    temp_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
     print(f"Nouvel agent connecté depuis {websocket.remote_address}")
     try:
-        # Enregistrer la connexion de l'agent
-        agent_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        # Enregistrer la connexion temporaire de l'agent
+        agent_id = temp_id
         AGENT_CONNECTIONS[agent_id] = {
             "websocket": websocket,
             "ip_interface": None,
-            "connected_at": None,
+            "agent_address": websocket.remote_address[0],
+            "agent_port": websocket.remote_address[1],
+            "connected_at": datetime.utcnow(),
+            "last_seen": datetime.utcnow(),
             "last_nmap": None,
+            "status": "online",
         }
-        print(f"Agent {agent_id} enregistré")
+        print(f"Agent {agent_id} enregistré temporairement")
         
         async for message in websocket:
             # Extraire scan_target du message pour l'afficher
             try:
                 data = json.loads(message)
                 message_status = data.get("status", "unknown")
-                message_scan_target = data.get("ip_interface")
+                message_ip_interface = data.get("ip_interface")
                 
-                # Mettre à jour l'IP cible si fournie
-                if message_scan_target:
-                    scan_target = message_scan_target
-                    AGENT_CONNECTIONS[agent_id]["ip_interface"] = scan_target
+                print(f"[{agent_id}] Message reçu - Status: {message_status}, IP: {message_ip_interface}")
+                
+                # Mettre à jour l'IP cible si fournie dans n'importe quel message
+                if message_ip_interface:
+                    # Chercher un agent existant avec cette IP Machine
+                    existing_agent = None
+                    for aid, info in list(AGENT_CONNECTIONS.items()):
+                        if info.get("ip_interface") == message_ip_interface and aid != agent_id:
+                            existing_agent = aid
+                            break
+                    
+                    # Si un agent existe déjà avec cette IP Machine, le mettre à jour
+                    if existing_agent:
+                        print(f"✓ Agent existant trouvé ({existing_agent}), mise à jour avec nouvelle connexion {agent_id}")
+                        # Copier les données dans l'ancien agent
+                        AGENT_CONNECTIONS[existing_agent]["websocket"] = websocket
+                        AGENT_CONNECTIONS[existing_agent]["agent_address"] = websocket.remote_address[0]
+                        AGENT_CONNECTIONS[existing_agent]["agent_port"] = websocket.remote_address[1]
+                        AGENT_CONNECTIONS[existing_agent]["status"] = "online"
+                        AGENT_CONNECTIONS[existing_agent]["last_seen"] = datetime.utcnow()
+                        # Supprimer la connexion temporaire
+                        if agent_id in AGENT_CONNECTIONS and agent_id != existing_agent:
+                            del AGENT_CONNECTIONS[agent_id]
+                        # Utiliser l'ID existant
+                        agent_id = existing_agent
+                    else:
+                        # Nouveau agent : utiliser l'IP Machine comme ID unique
+                        new_agent_id = message_ip_interface
+                        if new_agent_id != agent_id:
+                            # Transférer les données vers le nouvel ID
+                            AGENT_CONNECTIONS[new_agent_id] = AGENT_CONNECTIONS[agent_id]
+                            del AGENT_CONNECTIONS[agent_id]
+                            agent_id = new_agent_id
+                            print(f"✓ Agent réidentifié avec IP Machine: {agent_id}")
+                    
+                    AGENT_CONNECTIONS[agent_id]["ip_interface"] = message_ip_interface
+                    print(f"✓ Agent {agent_id} - IP Interface mise à jour: {message_ip_interface}")
+
+                # Mettre à jour le statut et le dernier contact
+                AGENT_CONNECTIONS[agent_id]["status"] = "online"
+                AGENT_CONNECTIONS[agent_id]["last_seen"] = datetime.utcnow()
                 
                 # Traiter le message d'initialisation
                 if message_status == "agent-init":
-                    print(f"Agent {agent_id} initialisé avec IP cible: {scan_target}")
+                    print(f"✓ Agent {agent_id} initialisé avec IP: {message_ip_interface}")
                 
                 # Stocker les résultats des scans
                 elif message_status == "auto-scan":
@@ -674,32 +715,48 @@ async def handler(websocket):
                             output = {}
                     AGENT_CONNECTIONS[agent_id]["last_nmap"] = output
                     
-                    # Sauvegarder les scans dans MongoDB (optionnel)
+                    # Sauvegarder les scans dans MongoDB
                     if mongo_scans_db is not None:
                         try:
+                            vulnerabilities = output.get("vulnerabilities", [])
+                            exploits = output.get("exploits", [])
+                            print(f"📊 Données du scan: {len(vulnerabilities)} vulns, {len(exploits)} exploits")
+                            
                             scan_doc = {
                                 "agent_id": agent_id,
-                                "scan_target": data.get("scan_target", "unknown"),
+                                "ip_interface": message_ip_interface or "unknown",
+                                "scan_target": message_ip_interface or "unknown",
                                 "timestamp": datetime.utcnow(),
                                 "nmap_result": output,
-                                "vulnerabilities": output.get("vulnerabilities", []),
-                                "exploits": output.get("exploits", [])
+                                "vulnerabilities": vulnerabilities,
+                                "exploits": exploits
                             }
-                            await mongo_scans_db.scans.insert_one(scan_doc)
+                            result = await mongo_scans_db.scans.insert_one(scan_doc)
+                            print(f"✓ Scan sauvegardé pour {agent_id} (ID: {result.inserted_id})")
+                            print(f"  Vulnérabilités: {len(vulnerabilities)}, Exploits: {len(exploits)}")
                         except Exception as e:
-                            print(f"Erreur lors de la sauvegarde du scan dans MongoDB: {e}")
-            except (json.JSONDecodeError, ValueError):
-                print(f"Rapport reçu de l'agent {agent_id}: {message}")
-            await websocket.send(json.dumps({"status": "ok", "message": "Rapport bien reçu."}))
+                            print(f"✗ Erreur lors de la sauvegarde du scan: {e}")
+            
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"Erreur JSON du message: {e}")
+            
+            # Envoyer une réponse de confirmation
+            try:
+                await websocket.send(json.dumps({"status": "ok", "message": "Rapport bien reçu."}))
+            except Exception as e:
+                print(f"Erreur lors de l'envoi de la réponse: {e}")
+                
     except websockets.exceptions.ConnectionClosedError:
         print(f"Agent {websocket.remote_address} déconnecté.")
     except Exception as e:
         print(f"Une erreur est survenue avec l'agent {websocket.remote_address}: {e}")
     finally:
-        # Nettoyer la connexion quand l'agent se déconnecte
+        # Marquer l'agent comme offline au lieu de le supprimer
         if agent_id and agent_id in AGENT_CONNECTIONS:
-            del AGENT_CONNECTIONS[agent_id]
-            print(f"Connexion de l'agent {agent_id} supprimée")
+            AGENT_CONNECTIONS[agent_id]["status"] = "offline"
+            AGENT_CONNECTIONS[agent_id]["websocket"] = None
+            AGENT_CONNECTIONS[agent_id]["last_seen"] = datetime.utcnow()
+            print(f"Agent {agent_id} marqué offline")
 
 
 ws_server = None
@@ -939,9 +996,9 @@ async def agents_list_page(request: Request, current_user: Optional[dict] = Depe
     agents = [
         {
             "id": agent_id,
-            "address": agent_id,
-            "scan_target": info.get("ip_interface", "Non configuré"),
-            "status": "online"
+            "address": f"{info.get('agent_address', agent_id)}:{info.get('agent_port', '')}" if info.get('agent_port') else info.get("agent_address", agent_id),
+            "scan_target": info.get("ip_interface") or "Non configuré",
+            "status": info.get("status", "online")
         }
         for agent_id, info in AGENT_CONNECTIONS.items()
     ]
@@ -974,8 +1031,8 @@ async def agent_details_page(request: Request, agent_id: str, current_user: Opti
     return templates.TemplateResponse("agent_details.html", {
         "request": request,
         "agent_id": agent_id,
-        "agent_address": agent_id,
-        "scan_target": agent_info.get("ip_interface", "Non configuré"),
+        "agent_address": f"{agent_info.get('agent_address', agent_id)}:{agent_info.get('agent_port', '')}" if agent_info.get('agent_port') else agent_info.get("agent_address", agent_id),
+        "scan_target": agent_info.get("ip_interface") or "Non configuré",
         "nmap_result": nmap_result,
         "has_nmap": nmap_result is not None,
         "vulnerabilities": vulnerabilities,
@@ -992,7 +1049,37 @@ async def server_info_page(request: Request, current_user: Optional[dict] = Depe
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse("server_info.html", {"request": request, "user": current_user})
 
-# Lifespan handler above takes care of startup/shutdown tasks.
+
+@app.get("/app/history", response_class=HTMLResponse)
+async def history_page(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
+    """Page d'historique des scans"""
+    if not current_user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    
+    # Récupérer les derniers scans depuis MongoDB
+    scans = []
+    try:
+        if mongo_scans_db:
+            # Récupérer les 50 derniers scans triés par timestamp décroissant
+            async for scan in mongo_scans_db.scans.find().sort("timestamp", -1).limit(50):
+                scans.append({
+                    "agent_id": scan.get("agent_id", "Unknown"),
+                    "scan_target": scan.get("ip_interface") or scan.get("scan_target", "Unknown"),
+                    "timestamp": scan.get("timestamp", datetime.utcnow()),
+                    "vulnerabilities_count": len(scan.get("vulnerabilities", [])),
+                    "exploits_count": len(scan.get("exploits", [])),
+                    "open_ports": scan.get("nmap_result", {}).get("summary", {}).get("open_ports", 0),
+                    "vulnerabilities": scan.get("vulnerabilities", [])[:5]  # Top 5 vulnérabilités
+                })
+    except Exception as e:
+        print(f"Erreur lors de la récupération de l'historique: {e}")
+    
+    return templates.TemplateResponse("history.html", {
+        "request": request,
+        "user": current_user,
+        "scans": scans,
+        "count": len(scans)
+    })
 
 
 # API Routes
@@ -1015,7 +1102,7 @@ async def configure_agent(agent_id: str, ip_interface: str):
         }
         await websocket.send(json.dumps(command))
         # Mettre à jour l'IP cible en mémoire
-        agent_info["scan_target"] = ip_interface
+        agent_info["ip_interface"] = ip_interface
         return {"status": "command_sent", "agent_id": agent_id, "ip_interface": ip_interface}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erreur: {e}")
@@ -1025,6 +1112,24 @@ async def configure_agent(agent_id: str, ip_interface: str):
 async def list_connected_agents():
     """Liste tous les agents actuellement connectés"""
     return {"agents": list(AGENT_CONNECTIONS.keys()), "count": len(AGENT_CONNECTIONS)}
+
+
+@app.get("/api/debug/scans")
+async def debug_scans(current_user: Optional[dict] = Depends(get_current_user)):
+    """Debug: Affiche tous les scans dans la base de données"""
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    
+    scans = []
+    try:
+        if mongo_scans_db:
+            async for scan in mongo_scans_db.scans.find().limit(10):
+                # Convertir ObjectId en string
+                scan["_id"] = str(scan["_id"])
+                scans.append(scan)
+        return {"scans": scans, "count": len(scans)}
+    except Exception as e:
+        return {"error": str(e), "scans": []}
 
 
 @app.post("/api/agents/{agent_id}/generate-report")

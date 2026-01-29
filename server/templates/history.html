@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>CAESAR – Historique des scans</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .scan-item {
+            border-left: 4px solid #0078d4;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            transition: all 0.3s ease;
+        }
+        .scan-item:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .scan-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .scan-target {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+        .scan-timestamp {
+            font-size: 0.9rem;
+            color: #9ca3af;
+        }
+        .scan-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.75rem;
+            margin: 0.75rem 0;
+        }
+        .metric {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 0.5rem;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        .metric-value {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+        .metric-label {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        .vulnerabilities-preview {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        .vulnerabilities-preview h4 {
+            margin: 0 0 0.5rem 0;
+            color: #d83b01;
+            font-size: 0.9rem;
+        }
+        .vuln-tag {
+            display: inline-block;
+            background: rgba(216, 59, 1, 0.1);
+            color: #d83b01;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            margin: 0.25rem 0.25rem 0.25rem 0;
+            border: 1px solid rgba(216, 59, 1, 0.3);
+        }
+        .severity-critical {
+            background: rgba(220, 38, 38, 0.1);
+            color: #dc2626;
+            border-color: rgba(220, 38, 38, 0.3);
+        }
+        .severity-high {
+            background: rgba(249, 115, 22, 0.1);
+            color: #f97316;
+            border-color: rgba(249, 115, 22, 0.3);
+        }
+        .severity-medium {
+            background: rgba(234, 179, 8, 0.1);
+            color: #eab308;
+            border-color: rgba(234, 179, 8, 0.3);
+        }
+        .severity-low {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #9ca3af;
+        }
+        .empty-state p {
+            margin: 0;
+        }
+        .filter-section {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .filter-section input,
+        .filter-section select {
+            padding: 0.5rem;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 4px;
+            background: rgba(15, 23, 42, 0.96);
+            color: #ffffff;
+            font-size: 0.9rem;
+        }
+        .filter-section input::placeholder {
+            color: #6b7280;
+        }
+        .sort-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .sort-controls button {
+            padding: 0.5rem 1rem;
+            background: rgba(7, 89, 133, 0.2);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: #38bdf8;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+        .sort-controls button:hover,
+        .sort-controls button.active {
+            background: rgba(7, 89, 133, 0.4);
+            border-color: #38bdf8;
+        }
+    </style>
+</head>
+<body class="app">
+<div class="layout">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-circle">C</div>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">CAESAR</span>
+                <span class="sidebar-title-sub">Control Panel</span>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/app" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Accueil</span>
+            </a>
+            <a href="/app/create" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Créer un agent</span>
+            </a>
+            <a href="/app/agents" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Liste des agents</span>
+            </a>
+            <a href="/app/history" class="nav-item nav-item--active">
+                <span class="nav-dot"></span>
+                <span>Historique</span>
+            </a>
+            <a href="/app/info" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Infos serveur</span>
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot status-dot--ok"></span>
+            <span class="status-text">Serveur prêt</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <div>
+                <h1 class="main-title">Historique des scans</h1>
+                <p class="main-subtitle">Consultez les derniers scans et vulnérabilités détectées.</p>
+            </div>
+            <div class="header-actions">
+                <a href="/logout" class="btn btn-secondary">Déconnexion</a>
+            </div>
+        </header>
+
+        <section class="agents-section">
+            <article class="card">
+                <div class="card-header">
+                    <h2>Derniers scans</h2>
+                    <span class="badge">{{ count }} scan{% if count != 1 %}s{% endif %}</span>
+                </div>
+
+                {% if count == 0 %}
+                <div class="empty-state">
+                    <p>Aucun scan n'a été réalisé pour le moment.</p>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">Déployez un agent et lancez un scan pour voir l'historique.</p>
+                </div>
+                {% else %}
+                <div class="filter-section">
+                    <input type="text" id="searchTarget" placeholder="Chercher par IP ou agent..." />
+                    <div class="sort-controls">
+                        <button onclick="sortScans('date')" class="active" id="sortDate">Plus récents</button>
+                        <button onclick="sortScans('vulns')" id="sortVulns">Plus de vulnérabilités</button>
+                    </div>
+                </div>
+
+                <div id="scansContainer">
+                    {% for scan in scans %}
+                    <div class="scan-item" data-target="{{ scan.scan_target }}" data-agent="{{ scan.agent_id }}" data-vulns="{{ scan.vulnerabilities_count }}">
+                        <div class="scan-header">
+                            <div>
+                                <div class="scan-target">{{ scan.scan_target }}</div>
+                                <div style="font-size: 0.85rem; color: #9ca3af; margin-top: 0.25rem;">Agent: {{ scan.agent_id }}</div>
+                            </div>
+                            <div class="scan-timestamp">{{ scan.timestamp.strftime('%d/%m/%Y à %H:%M:%S') }}</div>
+                        </div>
+
+                        <div class="scan-metrics">
+                            <div class="metric">
+                                <div class="metric-value" style="color: #38bdf8;">{{ scan.open_ports }}</div>
+                                <div class="metric-label">Ports ouverts</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value" style="color: #d83b01;">{{ scan.vulnerabilities_count }}</div>
+                                <div class="metric-label">Vulnérabilités</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value" style="color: #dc2626;">{{ scan.exploits_count }}</div>
+                                <div class="metric-label">Exploits</div>
+                            </div>
+                        </div>
+
+                        {% if scan.vulnerabilities %}
+                        <div class="vulnerabilities-preview">
+                            <h4>🔴 Top vulnérabilités détectées:</h4>
+                            {% for vuln in scan.vulnerabilities %}
+                            <span class="vuln-tag severity-{{ vuln.severity|lower }}">
+                                {{ vuln.title|truncate(50) }}
+                            </span>
+                            {% endfor %}
+                            {% if scan.vulnerabilities_count > 5 %}
+                            <span style="color: #9ca3af; font-size: 0.8rem;">
+                                ... et {{ scan.vulnerabilities_count - 5 }} autres
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </article>
+        </section>
+    </main>
+</div>
+
+<script>
+function sortScans(type) {
+    const container = document.getElementById('scansContainer');
+    if (!container) return;
+
+    const items = Array.from(container.querySelectorAll('.scan-item'));
+    
+    items.sort((a, b) => {
+        if (type === 'date') {
+            return 0; // Maintenir l'ordre original (plus récents en premier)
+        } else if (type === 'vulns') {
+            return parseInt(b.dataset.vulns) - parseInt(a.dataset.vulns);
+        }
+    });
+
+    items.forEach(item => container.appendChild(item));
+
+    // Mettre à jour les boutons actifs
+    document.getElementById('sortDate').classList.remove('active');
+    document.getElementById('sortVulns').classList.remove('active');
+    if (type === 'date') {
+        document.getElementById('sortDate').classList.add('active');
+    } else {
+        document.getElementById('sortVulns').classList.add('active');
+    }
+}
+
+document.getElementById('searchTarget').addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase();
+    const items = document.querySelectorAll('.scan-item');
+    
+    items.forEach(item => {
+        const target = item.dataset.target.toLowerCase();
+        const agent = item.dataset.agent.toLowerCase();
+        
+        if (target.includes(query) || agent.includes(query)) {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+</script>
+</body>
+</html>

@@ -28,6 +28,10 @@
                 <span class="nav-dot"></span>
                 <span>Liste des agents</span>
             </a>
+            <a href="/app/history" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Historique</span>
+            </a>
             <a href="/app/info" class="nav-item">
                 <span class="nav-dot"></span>
                 <span>Infos serveur</span>
@@ -52,42 +56,106 @@
 
         <section class="form-section">
             <article class="card">
-                <h2>Configuration de l'agent</h2>
-                <p>Remplissez les informations pour créer un nouvel agent. Le formulaire n'est pas encore fonctionnel.</p>
-                
-                <form class="agent-form" method="post" action="#">
-                    <div class="form-group">
-                        <label for="agent-name">Nom de l'agent</label>
-                        <input 
-                            id="agent-name" 
-                            name="name" 
-                            type="text" 
-                            placeholder="ex: Agent-Pentest-01" 
-                            required
-                        >
-                        <small class="form-hint">Identifiant unique pour cet agent</small>
+                    <div class="form-section-divider">
+                        <h3>Configuration de l'agent</h3>
                     </div>
 
                     <div class="form-group">
-                        <label for="agent-description">Description</label>
-                        <textarea 
-                            id="agent-description" 
-                            name="description" 
-                            rows="4" 
-                            placeholder="Description de l'agent, outils intégrés, cibles, etc."
-                        ></textarea>
-                        <small class="form-hint">Optionnel : décrivez le rôle et les capacités de cet agent</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="agent-type">Type d'agent</label>
-                        <select id="agent-type" name="type">
-                            <option value="pentest">Pentest Standard</option>
-                            <option value="recon">Reconnaissance</option>
-                            <option value="exploit">Exploitation</option>
-                            <option value="post">Post-exploitation</option>
+                        <label for="os-type">Système d'exploitation *</label>
+                        <select id="os-type" onchange="updateCommand()">
+                            <option value="windows">Windows (PowerShell)</option>
+                            <option value="linux">Linux (Bash)</option>
                         </select>
-                        <small class="form-hint">Sélectionnez le type d'agent à déployer</small>
+                        <small class="form-hint">Système d'exploitation de la machine cible</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ip-interface">IP Interface (Cible) *</label>
+                        <input 
+                            id="ip-interface" 
+                            type="text" 
+                            placeholder="ex: 192.168.1.100 ou 0.0.0.0"
+                            value="0.0.0.0"
+                            oninput="updateCommand()"
+                        >
+                        <small class="form-hint">Adresse IP du réseau/machine cible à scanner</small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="server-host">Server Host</label>
+                            <input 
+                                id="server-host" 
+                                type="text" 
+                                placeholder="host.docker.internal"
+                                value="host.docker.internal"
+                                oninput="updateCommand()"
+                            >
+                            <small class="form-hint">Adresse du serveur WebSocket</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="websocket-port">WebSocket Port</label>
+                            <input 
+                                id="websocket-port" 
+                                type="number" 
+                                placeholder="8765"
+                                value="8765"
+                                oninput="updateCommand()"
+                            >
+                            <small class="form-hint">Port du serveur WebSocket</small>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="websocket-scheme">WebSocket Scheme</label>
+                            <select id="websocket-scheme" onchange="updateCommand()">
+                                <option value="ws">ws (non sécurisé)</option>
+                                <option value="wss">wss (sécurisé)</option>
+                            </select>
+                            <small class="form-hint">Schéma de connexion WebSocket</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="scan-interval">Scan Interval (secondes)</label>
+                            <input 
+                                id="scan-interval" 
+                                type="number" 
+                                placeholder="300"
+                                value="300"
+                                oninput="updateCommand()"
+                            >
+                            <small class="form-hint">Intervalle entre les scans</small>
+                        </div>
+                    </div>
+
+                    <!-- Commande d'installation des dépendances -->
+                    <div class="form-group">
+                        <label for="install-command">1. Installation des dépendances (si nécessaire)</label>
+                        <div class="command-container">
+                            <textarea 
+                                id="install-command" 
+                                readonly
+                                class="command-input"
+                                rows="2"
+                            ></textarea>
+                            <button type="button" class="btn-copy" onclick="copyInstallCommand()">Copier</button>
+                        </div>
+                        <small class="form-hint">Installez Git, Docker et Docker Compose si ce n'est pas déjà fait</small>
+                    </div>
+
+                    <!-- Commande de déploiement générée -->
+                    <div class="form-group">
+                        <label for="agent-command">2. Déploiement de l'agent</label>
+                        <div class="command-container">
+                            <textarea 
+                                id="agent-command" 
+                                readonly
+                                class="command-input"
+                                rows="2"
+                            ></textarea>
+                            <button type="button" class="btn-copy" onclick="copyCommand()">Copier</button>
+                        </div>
+                        <small class="form-hint">Clone le repo, configure et démarre l'agent automatiquement</small>
                     </div>
 
                     <div class="form-actions">
@@ -109,5 +177,74 @@
         </section>
     </main>
 </div>
+
+<script>
+function updateCommand() {
+    const osType = document.getElementById('os-type').value;
+    const ipInterface = document.getElementById('ip-interface').value || '0.0.0.0';
+    const serverHost = document.getElementById('server-host').value || 'host.docker.internal';
+    const websocketPort = document.getElementById('websocket-port').value || '8765';
+    const websocketScheme = document.getElementById('websocket-scheme').value || 'ws';
+    const scanInterval = document.getElementById('scan-interval').value || '300';
+    
+    let installCommand, deployCommand;
+    
+    if (osType === 'windows') {
+        // Commande d'installation Windows (PowerShell)
+        installCommand = `# Installer Git et Docker Desktop (exécuter en tant qu'administrateur)\nwinget install Git.Git Docker.DockerDesktop`;
+        
+        // Commande de déploiement Windows (PowerShell)
+        deployCommand = `$repoDir = Join-Path $env:USERPROFILE "CAESAR"; New-Item -ItemType Directory -Force -Path $repoDir | Out-Null; if (Test-Path (Join-Path $repoDir ".git")) { Remove-Item -Recurse -Force $repoDir }; git clone -b dev-agent https://github.com/Romso94/CAESAR.git $repoDir; Set-Location (Join-Path $repoDir "agents"); $env:SERVER_HOST="${serverHost}"; $env:WEBSOCKET_PORT="${websocketPort}"; $env:WEBSOCKET_SCHEME="${websocketScheme}"; $env:IP_INTERFACE="${ipInterface}"; $env:SCAN_INTERVAL="${scanInterval}"; docker-compose up -d`;
+    } else {
+        // Commande d'installation Linux (Bash)
+        installCommand = `# Installer Git, Docker et Docker Compose\nsudo apt-get update && sudo apt-get install -y git docker.io docker-compose && sudo systemctl start docker && sudo systemctl enable docker`;
+        
+        // Commande de déploiement Linux (Bash)
+        deployCommand = `git clone -b dev-agent https://github.com/Romso94/CAESAR.git && cd CAESAR/agents && IP_INTERFACE="${ipInterface}" SERVER_HOST="${serverHost}" WEBSOCKET_PORT="${websocketPort}" WEBSOCKET_SCHEME="${websocketScheme}" SCAN_INTERVAL="${scanInterval}" docker-compose up -d`;
+    }
+    
+    document.getElementById('install-command').value = installCommand;
+    document.getElementById('agent-command').value = deployCommand;
+}
+
+function copyCommand() {
+    const commandInput = document.getElementById('agent-command');
+    commandInput.select();
+    document.execCommand('copy');
+    
+    // Feedback visuel
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = '✓ Copié !';
+    btn.style.backgroundColor = '#10b981';
+    
+    setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.backgroundColor = '';
+    }, 2000);
+}
+
+function copyInstallCommand() {
+    const commandInput = document.getElementById('install-command');
+    commandInput.select();
+    document.execCommand('copy');
+    
+    // Feedback visuel
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = '✓ Copié !';
+    btn.style.backgroundColor = '#10b981';
+    
+    setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.backgroundColor = '';
+    }, 2000);
+}
+
+// Initialiser la commande au chargement
+document.addEventListener('DOMContentLoaded', function() {
+    updateCommand();
+});
+</script>
 </body>
 </html>

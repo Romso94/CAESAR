@@ -28,6 +28,10 @@
                 <span class="nav-dot"></span>
                 <span>Liste des agents</span>
             </a>
+            <a href="/app/history" class="nav-item">
+                <span class="nav-dot"></span>
+                <span>Historique</span>
+            </a>
             <a href="/app/info" class="nav-item">
                 <span class="nav-dot"></span>
                 <span>Infos serveur</span>
@@ -65,8 +69,8 @@
                     <table class="agents-table">
                         <thead>
                             <tr>
-                                <th>Adresse Agent</th>
-                                <th>IP Cible</th>
+                                <th>IP Machine</th>
+                                <th>IP Agent</th>
                                 <th>Statut</th>
                                 <th>Actions</th>
                             </tr>
@@ -83,13 +87,16 @@
                             {% else %}
                             {% for agent in agents %}
                             <tr>
+                                <td>
+                                    <div>
+                                        <strong></strong> <code class="agent-target">{{ agent.scan_target }}</code>
+                                    </div>
+                                </td>
                                 <td><code class="agent-id">{{ agent.address }}</code></td>
-                                <td><code class="agent-target">{{ agent.scan_target }}</code></td>
-                                <td><span class="badge badge-ok">{{ agent.status }}</span></td>
+                                <td><span class="badge {% if agent.status == 'offline' %}badge-offline{% else %}badge-ok{% endif %}">{{ agent.status }}</span></td>
                                 <td>
                                     <div class="table-actions">
-                                        <button class="btn btn-sm btn-primary" onclick="configureAgent('{{ agent.id }}')">Configurer</button>
-                                        <button class="btn btn-sm btn-info" onclick="viewDetails('{{ agent.id }}')">Détails</button>
+                                        <button class="btn btn-sm btn-primary" onclick="viewDetails('{{ agent.id }}')">Détails</button>
                                     </div>
                                 </td>
                             </tr>
@@ -99,62 +106,19 @@
                     </table>
                 </div>
             </article>
-
-            <article class="card">
-                <h2>Configurer un agent</h2>
-                <p>Modifiez l'adresse IP cible pour les scans.</p>
-                <div class="form-group">
-                    <label for="agent-id-select">Sélectionner un agent :</label>
-                    <select id="agent-id-select">
-                        <option value="">-- Choisir un agent --</option>
-                        {% for agent in agents %}
-                        <option value="{{ agent.id }}">{{ agent.address }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="ip-interface">Nouvelle IP cible :</label>
-                    <input type="text" id="ip-interface" placeholder="ex: 192.168.1.100" />
-                </div>
-                <button class="btn btn-primary" onclick="applyConfiguration()">Appliquer</button>
-            </article>
         </section>
     </main>
 </div>
 
 <script>
-function configureAgent(agentId) {
-    const ipInterface = prompt('Entrez la nouvelle IP cible :');
-    if (ipInterface) {
-        applyConfiguration(agentId, ipInterface);
-    }
-}
-
-function applyConfiguration(agentId, ipInterface) {
-    agentId = agentId || document.getElementById('agent-id-select').value;
-    ipInterface = ipInterface || document.getElementById('ip-interface').value;
-    
-    if (!agentId || !ipInterface) {
-        alert('Veuillez remplir tous les champs');
-        return;
-    }
-    
-    fetch(`/api/agents/${agentId}/configure?ip_interface=${encodeURIComponent(ipInterface)}`, {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        alert('Configuration appliquée : ' + JSON.stringify(data));
-        location.reload();
-    })
-    .catch(error => {
-        alert('Erreur : ' + error);
-    });
-}
-
 function viewDetails(agentId) {
     window.location.href = `/app/agents/${encodeURIComponent(agentId)}/details`;
 }
+
+// Actualiser automatiquement la liste des agents
+setInterval(() => {
+    location.reload();
+}, 5000);
 </script>
 </body>
 </html>
