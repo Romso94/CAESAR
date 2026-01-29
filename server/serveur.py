@@ -720,10 +720,7 @@ async def handler(websocket):
                         try:
                             vulnerabilities = output.get("vulnerabilities", [])
                             exploits = output.get("exploits", [])
-                            lynis_findings = output.get("lynis", {}).get("findings", []) if output.get("lynis") else []
-                            hardeningkitty_findings = output.get("hardeningkitty", {}).get("findings", []) if output.get("hardeningkitty") else []
-                            
-                            print(f"📊 Données du scan: {len(vulnerabilities)} vulns, {len(exploits)} exploits, {len(lynis_findings)} Lynis, {len(hardeningkitty_findings)} HardeningKitty")
+                            print(f"📊 Données du scan: {len(vulnerabilities)} vulns, {len(exploits)} exploits")
                             
                             scan_doc = {
                                 "agent_id": agent_id,
@@ -732,14 +729,11 @@ async def handler(websocket):
                                 "timestamp": datetime.utcnow(),
                                 "nmap_result": output,
                                 "vulnerabilities": vulnerabilities,
-                                "exploits": exploits,
-                                "lynis": output.get("lynis", {}),
-                                "hardeningkitty": output.get("hardeningkitty", {})
+                                "exploits": exploits
                             }
                             result = await mongo_scans_db.scans.insert_one(scan_doc)
                             print(f"✓ Scan sauvegardé pour {agent_id} (ID: {result.inserted_id})")
                             print(f"  Vulnérabilités: {len(vulnerabilities)}, Exploits: {len(exploits)}")
-                            print(f"  Lynis: {len(lynis_findings)}, HardeningKitty: {len(hardeningkitty_findings)}")
                         except Exception as e:
                             print(f"✗ Erreur lors de la sauvegarde du scan: {e}")
             
@@ -985,19 +979,13 @@ async def home_page(request: Request, current_user: Optional[dict] = Depends(get
     """Page d'accueil avec sidebar et boutons"""
     if not current_user:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    
     recent_vulns = []
-    recent_lynis_findings = []
-    recent_hardeningkitty_findings = []
-    
     try:
         if mongo_scans_db is not None:
             async for scan in mongo_scans_db.scans.find().sort("timestamp", -1).limit(30):
                 scan_target = scan.get("ip_interface") or scan.get("scan_target", "Unknown")
                 agent_id = scan.get("agent_id", "Unknown")
                 timestamp = scan.get("timestamp", datetime.utcnow())
-                
-                # Récupérer les vulnérabilités Nmap
                 for vuln in scan.get("vulnerabilities", []):
                     recent_vulns.append({
                         "title": vuln.get("title", "Vulnérabilité inconnue"),
@@ -1010,40 +998,7 @@ async def home_page(request: Request, current_user: Optional[dict] = Depends(get
                     })
                     if len(recent_vulns) >= 10:
                         break
-                
-                # Récupérer les findings Lynis
-                lynis_data = scan.get("lynis", {})
-                if lynis_data and not lynis_data.get("error"):
-                    for finding in lynis_data.get("findings", [])[:5]:
-                        recent_lynis_findings.append({
-                            "title": finding.get("title", "Finding Lynis"),
-                            "severity": finding.get("severity", "unknown"),
-                            "type": finding.get("type", "info"),
-                            "description": finding.get("description", ""),
-                            "scan_target": scan_target,
-                            "agent_id": agent_id,
-                            "timestamp": timestamp,
-                        })
-                        if len(recent_lynis_findings) >= 10:
-                            break
-                
-                # Récupérer les findings HardeningKitty
-                hk_data = scan.get("hardeningkitty", {})
-                if hk_data and not hk_data.get("error"):
-                    for finding in hk_data.get("findings", [])[:5]:
-                        recent_hardeningkitty_findings.append({
-                            "title": finding.get("title", "Finding HardeningKitty"),
-                            "severity": finding.get("severity", "unknown"),
-                            "type": finding.get("type", "info"),
-                            "description": finding.get("description", ""),
-                            "scan_target": scan_target,
-                            "agent_id": agent_id,
-                            "timestamp": timestamp,
-                        })
-                        if len(recent_hardeningkitty_findings) >= 10:
-                            break
-                
-                if len(recent_vulns) >= 10 and len(recent_lynis_findings) >= 10 and len(recent_hardeningkitty_findings) >= 10:
+                if len(recent_vulns) >= 10:
                     break
     except Exception as e:
         print(f"Erreur lors de la récupération des vulnérabilités: {e}")
@@ -1052,11 +1007,7 @@ async def home_page(request: Request, current_user: Optional[dict] = Depends(get
         "request": request,
         "user": current_user,
         "recent_vulns": recent_vulns,
-        "recent_vulns_count": len(recent_vulns),
-        "recent_lynis_findings": recent_lynis_findings,
-        "recent_lynis_count": len(recent_lynis_findings),
-        "recent_hardeningkitty_findings": recent_hardeningkitty_findings,
-        "recent_hardeningkitty_count": len(recent_hardeningkitty_findings)
+        "recent_vulns_count": len(recent_vulns)
     })
 
 
@@ -1157,9 +1108,7 @@ async def history_page(request: Request, current_user: Optional[dict] = Depends(
                     "vulnerabilities_count": len(scan.get("vulnerabilities", [])),
                     "exploits_count": len(scan.get("exploits", [])),
                     "open_ports": scan.get("nmap_result", {}).get("summary", {}).get("open_ports", 0),
-                    "vulnerabilities": scan.get("vulnerabilities", [])[:5],  # Top 5 vulnérabilités
-                    "lynis_count": len(scan.get("lynis", {}).get("findings", [])) if scan.get("lynis") else 0,
-                    "hardeningkitty_count": len(scan.get("hardeningkitty", {}).get("findings", [])) if scan.get("hardeningkitty") else 0
+                    "vulnerabilities": scan.get("vulnerabilities", [])[:5]  # Top 5 vulnérabilités
                 })
                 
                 # Collecter toutes les vulnérabilités pour cette IP
