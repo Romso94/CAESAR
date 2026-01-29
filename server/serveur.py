@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 import websockets
 from fastapi import FastAPI, Form, HTTPException, Request, status, Depends, Cookie, Header
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +16,8 @@ from pydantic import BaseModel, EmailStr
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+
+from report_generator import SecurityAuditReportGenerator
 
 # Configuration MongoDB
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
@@ -584,6 +586,52 @@ async def configure_agent(agent_id: str, ip_interface: str):
 async def list_connected_agents():
     """Liste tous les agents actuellement connectés"""
     return {"agents": list(AGENT_CONNECTIONS.keys()), "count": len(AGENT_CONNECTIONS)}
+
+
+@app.post("/api/agents/{agent_id}/generate-report")
+async def generate_security_report(agent_id: str, current_user: Optional[dict] = Depends(get_current_user)):
+    """
+    Génère un rapport d'audit de sécurité en PDF.
+    Combine les données Nmap, vulnérabilités et exploits.
+    """
+    if agent_id not in AGENT_CONNECTIONS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent non trouvé")
+    
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Non autorisé")
+    
+    agent_info = AGENT_CONNECTIONS[agent_id]
+    nmap_result = agent_info.get("last_nmap")
+    
+    if not nmap_result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aucun résultat de scan disponible")
+    
+    try:
+        scan_target = agent_info.get("ip_interface", "Non configuré")
+        
+        # Générer le rapport PDF
+        report_generator = SecurityAuditReportGenerator(
+            agent_id=agent_id,
+            scan_target=scan_target,
+            nmap_result=nmap_result
+        )
+        
+        pdf_buffer = report_generator.generate()
+        
+        # Retourner le PDF en téléchargement
+        filename = f"rapport_audit_{agent_id}_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+        
+        return StreamingResponse(
+            iter([pdf_buffer.getvalue()]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors de la génération du rapport: {str(e)}"
+        )
 
 
 @app.post("/agents")

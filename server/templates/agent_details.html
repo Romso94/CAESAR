@@ -250,6 +250,11 @@
                 <p class="main-subtitle">Résultats des scans pour {{ agent_address }}</p>
             </div>
             <div class="header-actions">
+                {% if has_nmap and nmap_result %}
+                <button id="generateReportBtn" class="btn btn-primary" onclick="generateReport()">
+                    📄 Générer un rapport
+                </button>
+                {% endif %}
                 <a href="/app/agents" class="btn btn-secondary back-button">← Retour</a>
                 <a href="/logout" class="btn btn-secondary">Déconnexion</a>
             </div>
@@ -464,6 +469,50 @@
             setTimeout(() => {
                 location.reload();
             }, 3000);
+        }
+    }
+    
+    // Générer et télécharger le rapport d'audit de sécurité
+    async function generateReport() {
+        const agentId = '{{ agent_id }}';
+        const generateReportBtn = document.getElementById('generateReportBtn');
+        
+        // Désactiver le bouton pendant le traitement
+        generateReportBtn.disabled = true;
+        const originalText = generateReportBtn.textContent;
+        generateReportBtn.textContent = '⏳ Génération en cours...';
+        
+        try {
+            const response = await fetch(`/api/agents/${agentId}/generate-report`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+            }
+            
+            // Créer un blob et télécharger le fichier
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rapport_audit_${agentId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            // Réinitialiser le bouton
+            generateReportBtn.textContent = originalText;
+            generateReportBtn.disabled = false;
+        } catch (error) {
+            console.error('Erreur lors de la génération du rapport:', error);
+            alert('Erreur lors de la génération du rapport: ' + error.message);
+            generateReportBtn.textContent = originalText;
+            generateReportBtn.disabled = false;
         }
     }
     
