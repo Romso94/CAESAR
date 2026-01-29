@@ -327,6 +327,14 @@
                                         <div class="metric-value" style="color: #dc2626;">{{ scan.exploits_count }}</div>
                                         <div class="metric-label">Exploits</div>
                                     </div>
+                                    <div class="metric">
+                                        <div class="metric-value" style="color: #9ca3af;">{{ scan.lynis_count }}</div>
+                                        <div class="metric-label">Lynis</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value" style="color: #65a30d;">{{ scan.hardeningkitty_count }}</div>
+                                        <div class="metric-label">HardeningKitty</div>
+                                    </div>
                                 </div>
                             </div>
                             {% endfor %}

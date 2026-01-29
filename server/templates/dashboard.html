@@ -56,6 +56,48 @@
             color: #3b82f6;
             border-color: rgba(59, 130, 246, 0.3);
         }
+        .finding-item {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            background: rgba(15, 23, 42, 0.7);
+        }
+        .finding-title {
+            font-weight: 600;
+            color: #e5e7eb;
+        }
+        .finding-meta {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        .finding-desc {
+            font-size: 0.85rem;
+            color: #d1d5db;
+            margin-top: 0.35rem;
+        }
+        .finding-tag {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        .finding-tag-lynis {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+        .finding-tag-hardeningkitty {
+            background: rgba(101, 163, 13, 0.1);
+            color: #65a30d;
+        }
+        .empty-state {
+            padding: 1.5rem;
+            text-align: center;
+            color: #9ca3af;
+        }
     </style>
 </head>
 <body class="app">
@@ -171,8 +213,75 @@
                 {% endif %}
             </article>
         </section>
+
+         <div style="height: 1px; background: rgba(148, 163, 184, 0.3); margin: 2rem 0;"></div>
+
+        <section class="agents-section">
+            <article class="card">
+                <h2>Findings Lynis (Hardening Linux)</h2>
+                {% if recent_lynis_count == 0 %}
+                <div class="empty-state">
+                    <p>Aucun finding Lynis détecté pour le moment</p>
+                </div>
+                {% else %}
+                <div>
+                    {% for finding in recent_lynis_findings %}
+                    <div class="finding-item">
+                        <div>
+                            <span class="finding-tag finding-tag-lynis">
+                                {{ finding.type|upper }}
+                            </span>
+                            <span class="finding-title">{{ finding.title|truncate(80) }}</span>
+                        </div>
+                        <div class="finding-meta">
+                            IP: <code class="agent-id">{{ finding.scan_target }}</code>
+                            {% if finding.severity %} • Sévérité: {{ finding.severity }}{% endif %}
+                            • {{ finding.timestamp.strftime('%d/%m/%Y %H:%M') }}
+                        </div>
+                        {% if finding.description %}
+                        <div class="finding-desc">{{ finding.description|truncate(160) }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </article>
+        </section>
+
+         <div style="height: 1px; background: rgba(148, 163, 184, 0.3); margin: 2rem 0;"></div>
+
+        <section class="agents-section">
+            <article class="card">
+                <h2>Findings HardeningKitty (Hardening Windows)</h2>
+                {% if recent_hardeningkitty_count == 0 %}
+                <div class="empty-state">
+                    <p>Aucun finding HardeningKitty détecté pour le moment</p>
+                </div>
+                {% else %}
+                <div>
+                    {% for finding in recent_hardeningkitty_findings %}
+                    <div class="finding-item">
+                        <div>
+                            <span class="finding-tag finding-tag-hardeningkitty">
+                                {{ finding.type|upper }}
+                            </span>
+                            <span class="finding-title">{{ finding.title|truncate(80) }}</span>
+                        </div>
+                        <div class="finding-meta">
+                            IP: <code class="agent-id">{{ finding.scan_target }}</code>
+                            {% if finding.severity %} • Sévérité: {{ finding.severity }}{% endif %}
+                            • {{ finding.timestamp.strftime('%d/%m/%Y %H:%M') }}
+                        </div>
+                        {% if finding.description %}
+                        <div class="finding-desc">{{ finding.description|truncate(160) }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </article>
+        </section>
     </main>
 </div>
 </body>
 </html>
-

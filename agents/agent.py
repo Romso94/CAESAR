@@ -415,7 +415,278 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             "count": 0
         }
 
+
 async def run_nmap(target: str) -> dict:
+    """
+    Exécute un scan Nmap et retourne les résultats structurés en JSON.
+    Parse la sortie texte de Nmap pour créer une structure JSON.
+    """
+    try:
+        # Exécuter Nmap avec sortie texte standard
+        # -sV : détection de version
+        # -sC : exécution des scripts par défaut
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["nmap", "-sV", "-sC", target],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "error": True,
+                "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
+                "target": target,
+                "scan_target": target,
+                "format": "error"
+            }
+        
+        stdout_output = result.stdout if result.stdout else ""
+        stderr_output = result.stderr if result.stderr else ""
+        
+        if result.returncode != 0:
+            return {
+                "error": True,
+                "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
+                "stderr": stderr_output,
+                "target": target,
+                "ip_interface": target
+            }
+        
+        # Parser la sortie texte et la structurer
+        parsed_data = parse_nmap_output(stdout_output, target)
+        parsed_data["error"] = False
+        parsed_data["format"] = "structured"
+        parsed_data["ip_interface"] = target  # Ajouter l'IP de l'interface cible
+        
+        return parsed_data
+            
+    except subprocess.TimeoutExpired:
+        return {
+            "error": True,
+            "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
+            "target": target,
+            "ip_interface": target,
+            "format": "error"
+        }
+    except FileNotFoundError:
+        return {
+            "error": True,
+            "message": "Nmap n'est pas installé sur le système",
+            "target": target,
+            "ip_interface": target,
+            "format": "error"
+        }
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"Erreur lors du scan : {e}",
+            "target": target,
+            "ip_interface": target,
+            "format": "error"
+        }
+
+
+async def run_lynis() -> dict:
+    """
+    Exécute un scan de hardening Linux avec Lynis.
+    """
+    try:
+        # Commande Lynis (scan du système local)
+        cmd = ["lynis", "audit", "system", "--quiet"]
+        
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "error": True,
+                "message": "Timeout lors du scan Lynis (dépassement de 120 secondes)",
+                "scan_type": "lynis",
+                "findings": []
+            }
+        except FileNotFoundError:
+            return {
+                "error": True,
+                "message": "Lynis n'est pas installé sur le système",
+                "scan_type": "lynis",
+                "findings": []
+            }
+        
+        if result.returncode != 0:
+            return {
+                "error": True,
+                "message": f"Erreur lors du scan Lynis (code {result.returncode})",
+                "scan_type": "lynis",
+                "findings": []
+            }
+        
+        # Parser la sortie de Lynis
+        findings = parse_lynis_output(result.stdout)
+        
+        return {
+            "error": False,
+            "scan_type": "lynis",
+            "findings": findings,
+            "count": len(findings),
+            "raw_output": result.stdout
+        }
+        
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"Erreur lors du scan Lynis : {e}",
+            "scan_type": "lynis",
+            "findings": []
+        }
+
+
+async def run_hardeningkitty() -> dict:
+    """
+    Exécute un scan de hardening Windows avec HardeningKitty (PowerShell).
+    """
+    try:
+        # Commande HardeningKitty via PowerShell avec un timeout
+        ps_command = """
+        $ErrorActionPreference = 'SilentlyContinue'
+        $ProgressPreference = 'SilentlyContinue'
+        try {
+            $HardeningModule = 'https://raw.githubusercontent.com/0x6d69636b/windows_hardening/main/Invoke-HardeningKitty.ps1'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            IEX(New-Object Net.WebClient).DownloadString($HardeningModule)
+            Invoke-HardeningKitty -Mode Audit -Report
+        } catch {
+            Write-Output "Erreur: $_"
+        }
+        """
+        
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True,
+                text=True,
+                timeout=180
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "error": True,
+                "message": "Timeout lors du scan HardeningKitty (dépassement de 180 secondes)",
+                "scan_type": "hardeningkitty",
+                "findings": []
+            }
+        except FileNotFoundError:
+            return {
+                "error": True,
+                "message": "PowerShell n'est pas disponible",
+                "scan_type": "hardeningkitty",
+                "findings": []
+            }
+        
+        # Parser la sortie de HardeningKitty
+        findings = parse_hardeningkitty_output(result.stdout)
+        
+        return {
+            "error": False,
+            "scan_type": "hardeningkitty",
+            "findings": findings,
+            "count": len(findings),
+            "raw_output": result.stdout
+        }
+        
+    except Exception as e:
+        return {
+            "error": True,
+            "message": f"Erreur lors du scan HardeningKitty : {e}",
+            "scan_type": "hardeningkitty",
+            "findings": []
+        }
+
+
+def parse_lynis_output(output: str) -> list:
+    """
+    Parse la sortie de Lynis pour extraire les findings (avertissements et suggestions).
+    """
+    findings = []
+    lines = output.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Parser les lignes de warning/suggestion
+        if line.startswith('[W]') or line.startswith('[!]'):
+            # Warning
+            finding_text = line[4:].strip()
+            findings.append({
+                "type": "warning",
+                "severity": "high",
+                "title": finding_text.split('-')[0].strip() if '-' in finding_text else finding_text,
+                "description": finding_text,
+                "source": "lynis"
+            })
+        elif line.startswith('[S]'):
+            # Suggestion
+            finding_text = line[4:].strip()
+            findings.append({
+                "type": "suggestion",
+                "severity": "medium",
+                "title": finding_text.split('-')[0].strip() if '-' in finding_text else finding_text,
+                "description": finding_text,
+                "source": "lynis"
+            })
+        elif line.startswith('[*]'):
+            # Info important
+            finding_text = line[4:].strip()
+            findings.append({
+                "type": "info",
+                "severity": "low",
+                "title": finding_text.split('-')[0].strip() if '-' in finding_text else finding_text,
+                "description": finding_text,
+                "source": "lynis"
+            })
+    
+    return findings
+
+
+def parse_hardeningkitty_output(output: str) -> list:
+    """
+    Parse la sortie de HardeningKitty pour extraire les findings.
+    """
+    findings = []
+    lines = output.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Parser les lignes de résultats HardeningKitty
+        if 'Passed' in line or 'Failed' in line or 'Warning' in line:
+            if 'Failed' in line:
+                severity = "high"
+                finding_type = "failed"
+            elif 'Warning' in line:
+                severity = "medium"
+                finding_type = "warning"
+            else:
+                continue  # Ignorer les résultats passés
+            
+            findings.append({
+                "type": finding_type,
+                "severity": severity,
+                "title": line.split('|')[0].strip() if '|' in line else line,
+                "description": line,
+                "source": "hardeningkitty"
+            })
+    
+    return findings
+
+
+async def run_lynis(target: str = None) -> dict:
     """
     Exécute un scan Nmap et retourne les résultats structurés en JSON.
     Parse la sortie texte de Nmap pour créer une structure JSON.
@@ -564,12 +835,22 @@ async def scan_loop(websocket, host_ip):
                 print("Recherche d'exploits avec searchsploit...")
                 exploits_result = await run_searchsploit(output_nmap)
             
-            # 4. Combiner tous les résultats
+            # 4. Scan Lynis (hardening Linux)
+            print("Exécution du scan Lynis...")
+            lynis_result = await run_lynis()
+            
+            # 5. Scan HardeningKitty (hardening Windows)
+            print("Exécution du scan HardeningKitty...")
+            hardeningkitty_result = await run_hardeningkitty()
+            
+            # 6. Combiner tous les résultats
             combined_output = output_nmap.copy()
             combined_output["vulnerabilities"] = vulnerabilities_result.get("vulnerabilities", [])
             combined_output["vulnerabilities_count"] = vulnerabilities_result.get("count", 0)
             combined_output["exploits"] = exploits_result.get("exploits", [])
             combined_output["exploits_count"] = exploits_result.get("count", 0)
+            combined_output["lynis"] = lynis_result
+            combined_output["hardeningkitty"] = hardeningkitty_result
 
             await websocket.send(json.dumps({
                 "status": "auto-scan",
@@ -578,7 +859,9 @@ async def scan_loop(websocket, host_ip):
                 "output": combined_output
             }))
 
-            print(f"Scan terminé. Vulnérabilités: {combined_output['vulnerabilities_count']}, Exploits: {combined_output['exploits_count']}")
+            lynis_count = lynis_result.get("count", 0) if not lynis_result.get("error") else 0
+            hk_count = hardeningkitty_result.get("count", 0) if not hardeningkitty_result.get("error") else 0
+            print(f"Scan terminé. Vulnérabilités: {combined_output['vulnerabilities_count']}, Exploits: {combined_output['exploits_count']}, Lynis: {lynis_count}, HardeningKitty: {hk_count}")
             print(f"Attente de {SCAN_INTERVAL} secondes avant le prochain scan...")
             await asyncio.sleep(SCAN_INTERVAL)
             
