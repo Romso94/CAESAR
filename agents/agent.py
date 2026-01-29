@@ -422,20 +422,21 @@ async def run_nmap(target: str) -> dict:
     """
     try:
         # Exécuter Nmap avec sortie texte standard
+        # -p- : scanner TOUS les ports (0-65535)
         # -sV : détection de version
         # -sC : exécution des scripts par défaut
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["nmap", "-sV", "-sC", target],
+                ["nmap", "-p-", "-sV", "-sC", target],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=600  # Augmenté à 10 minutes pour scanner tous les ports
             )
         except subprocess.TimeoutExpired:
             return {
                 "error": True,
-                "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
+                "message": "Timeout lors du scan Nmap (dépassement de 600 secondes)",
                 "target": target,
                 "scan_target": target,
                 "format": "error"
@@ -464,7 +465,7 @@ async def run_nmap(target: str) -> dict:
     except subprocess.TimeoutExpired:
         return {
             "error": True,
-            "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
+            "message": "Timeout lors du scan Nmap (dépassement de 600 secondes)",
             "target": target,
             "ip_interface": target,
             "format": "error"

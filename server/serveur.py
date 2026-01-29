@@ -233,7 +233,7 @@ class SecurityAuditReportGenerator:
             elements.append(Paragraph("Ports ouverts détectés:", styles['Heading3']))
             
             ports_data = [["Port", "Protocole", "État", "Service", "Version"]]
-            for port in ports[:20]:  # Limiter à 20 ports pour éviter un tableau trop volumineux
+            for port in ports[:5000]:  # Augmenté pour supporter tous les ports (0-65535)
                 ports_data.append([
                     str(port.get("port", "N/A")),
                     port.get("protocol", "N/A"),
@@ -516,7 +516,7 @@ async def lifespan(app: FastAPI):
         handler,
         host,
         port,
-        max_size=10 * 1024 * 1024  # 10 MB
+        max_size=100 * 1024 * 1024  # Augmenté à 100 MB pour supporter scans complets tous ports
     )
 
     try:
