@@ -60,6 +60,7 @@ services:
     networks:
       - caesar-network
     volumes:
+      - ./serveur.py:/app/server/serveur.py
       - ./templates:/app/server/templates
       - ./static:/app/server/static
 

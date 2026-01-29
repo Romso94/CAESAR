@@ -4,6 +4,59 @@
     <meta charset="UTF-8">
     <title>CAESAR – Console</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .vuln-item {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            background: rgba(15, 23, 42, 0.7);
+        }
+        .vuln-title {
+            font-weight: 600;
+            color: #e5e7eb;
+        }
+        .vuln-meta {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        .vuln-desc {
+            font-size: 0.85rem;
+            color: #d1d5db;
+            margin-top: 0.35rem;
+        }
+        .vuln-tag {
+            display: inline-block;
+            background: rgba(216, 59, 1, 0.1);
+            color: #d83b01;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+            border: 1px solid rgba(216, 59, 1, 0.3);
+        }
+        .severity-critical {
+            background: rgba(220, 38, 38, 0.1);
+            color: #dc2626;
+            border-color: rgba(220, 38, 38, 0.3);
+        }
+        .severity-high {
+            background: rgba(249, 115, 22, 0.1);
+            color: #f97316;
+            border-color: rgba(249, 115, 22, 0.3);
+        }
+        .severity-medium {
+            background: rgba(234, 179, 8, 0.1);
+            color: #eab308;
+            border-color: rgba(234, 179, 8, 0.3);
+        }
+        .severity-low {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+    </style>
 </head>
 <body class="app">
 <div class="layout">
@@ -47,7 +100,7 @@
         <header class="main-header">
             <div>
                 <h1 class="main-title">Tableau de bord</h1>
-                <p class="main-subtitle">Contrôle minimal de vos agents pentest via WebSocket.</p>
+                <p class="main-subtitle">Contrôle minimal de vos agents pentest via WebSocket</p>
             </div>
             <div>
                 <a href="/logout" class="btn btn-secondary">Déconnexion</a>
@@ -57,7 +110,7 @@
         <section class="cards-grid">
             <article class="card">
                 <h2>Agents</h2>
-                <p>Gérez vos agents pentest depuis une interface simple.</p>
+                <p>Gérez vos agents pentest depuis une interface simple</p>
                 <div class="card-actions">
                     <a href="/app/create" class="btn btn-secondary">Créer un agent</a>
                     <a href="/app/agents" class="btn btn-ghost">Voir tous les agents</a>
@@ -66,21 +119,56 @@
 
             <article class="card">
                 <h2>Actions rapides</h2>
-                <p>Ces boutons ne font encore rien, ils illustrent l’interface.</p>
                 <div class="quick-actions">
-                    <button class="btn btn-primary btn-full">Run un agent</button>
-                    <button class="btn btn-danger btn-full">Supprimer un agent</button>
+                    <a href="/app/create" class="btn btn-primary btn-full">Créer un agent</a>
+                    <a href="/app/agents" class="btn btn-secondary btn-full">Liste des agents</a>
                 </div>
             </article>
 
             <article class="card">
                 <h2>Statut serveur</h2>
-                <p>Vue d’ensemble de votre instance WebSocket &amp; API FastAPI.</p>
+                <p>Vue d’ensemble de votre instance WebSocket &amp; API FastAPI</p>
                 <ul class="status-list">
                     <li><span>API HTTP</span><span class="badge badge-ok">En ligne</span></li>
                     <li><span>WebSocket agents</span><span class="badge badge-ok">En écoute</span></li>
                     <li><span>Mode</span><span class="badge">Démo UI</span></li>
                 </ul>
+            </article>
+        </section>
+         <div style="height: 1px; background: rgba(148, 163, 184, 0.3); margin: 2rem 0;"></div>
+        <section class="agents-section">
+            <article class="card">
+                <h2>Vulnérabilités détectées</h2>
+                <p>Dernières vulnérabilités observées sur les agents</p>
+                {% if recent_vulns_count == 0 %}
+                <div class="empty-state">
+                    <p>Aucune vulnérabilité détectée pour le moment</p>
+                </div>
+                {% else %}
+                <div>
+                    {% for vuln in recent_vulns %}
+                    <div class="vuln-item">
+                        <div>
+                            <span class="vuln-tag severity-{{ vuln.severity|lower }}">
+                                {{ vuln.severity|upper }}
+                            </span>
+                            <span class="vuln-title">{{ vuln.title|truncate(80) }}</span>
+                        </div>
+                        <div class="vuln-meta">
+                            IP: <code class="agent-id">{{ vuln.scan_target }}</code>
+                            {% if vuln.port %} • Port: {{ vuln.port }}{% endif %}
+                            {% if vuln.cve %}
+                                • CVE: {{ vuln.cve if vuln.cve is string else vuln.cve|join(', ') }}
+                            {% endif %}
+                            • {{ vuln.timestamp.strftime('%d/%m/%Y %H:%M') }}
+                        </div>
+                        {% if vuln.description %}
+                        <div class="vuln-desc">{{ vuln.description|truncate(160) }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </article>
         </section>
     </main>

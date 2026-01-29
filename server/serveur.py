@@ -979,7 +979,36 @@ async def home_page(request: Request, current_user: Optional[dict] = Depends(get
     """Page d'accueil avec sidebar et boutons"""
     if not current_user:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": current_user})
+    recent_vulns = []
+    try:
+        if mongo_scans_db is not None:
+            async for scan in mongo_scans_db.scans.find().sort("timestamp", -1).limit(30):
+                scan_target = scan.get("ip_interface") or scan.get("scan_target", "Unknown")
+                agent_id = scan.get("agent_id", "Unknown")
+                timestamp = scan.get("timestamp", datetime.utcnow())
+                for vuln in scan.get("vulnerabilities", []):
+                    recent_vulns.append({
+                        "title": vuln.get("title", "Vulnérabilité inconnue"),
+                        "severity": vuln.get("severity", "unknown"),
+                        "port": vuln.get("port"),
+                        "cve": vuln.get("cve"),
+                        "scan_target": scan_target,
+                        "agent_id": agent_id,
+                        "timestamp": timestamp,
+                    })
+                    if len(recent_vulns) >= 10:
+                        break
+                if len(recent_vulns) >= 10:
+                    break
+    except Exception as e:
+        print(f"Erreur lors de la récupération des vulnérabilités: {e}")
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "user": current_user,
+        "recent_vulns": recent_vulns,
+        "recent_vulns_count": len(recent_vulns)
+    })
 
 
 @app.get("/app/create", response_class=HTMLResponse)
@@ -1056,30 +1085,51 @@ async def history_page(request: Request, current_user: Optional[dict] = Depends(
     if not current_user:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     
-    # Récupérer les derniers scans depuis MongoDB
-    scans = []
+    # Récupérer les derniers scans depuis MongoDB et grouper par IP
+    scans_by_ip = {}
+    all_vulns_by_ip = {}
+    
     try:
-        if mongo_scans_db:
-            # Récupérer les 50 derniers scans triés par timestamp décroissant
-            async for scan in mongo_scans_db.scans.find().sort("timestamp", -1).limit(50):
-                scans.append({
+        if mongo_scans_db is not None:
+            # Récupérer les 100 derniers scans triés par timestamp décroissant
+            async for scan in mongo_scans_db.scans.find().sort("timestamp", -1).limit(100):
+                scan_target = scan.get("ip_interface") or scan.get("scan_target", "Unknown")
+                
+                # Initialiser le groupe IP si nécessaire
+                if scan_target not in scans_by_ip:
+                    scans_by_ip[scan_target] = []
+                    all_vulns_by_ip[scan_target] = []
+                
+                # Ajouter le scan
+                scans_by_ip[scan_target].append({
                     "agent_id": scan.get("agent_id", "Unknown"),
-                    "scan_target": scan.get("ip_interface") or scan.get("scan_target", "Unknown"),
+                    "scan_target": scan_target,
                     "timestamp": scan.get("timestamp", datetime.utcnow()),
                     "vulnerabilities_count": len(scan.get("vulnerabilities", [])),
                     "exploits_count": len(scan.get("exploits", [])),
                     "open_ports": scan.get("nmap_result", {}).get("summary", {}).get("open_ports", 0),
                     "vulnerabilities": scan.get("vulnerabilities", [])[:5]  # Top 5 vulnérabilités
                 })
+                
+                # Collecter toutes les vulnérabilités pour cette IP
+                for vuln in scan.get("vulnerabilities", []):
+                    # Éviter les doublons
+                    vuln_key = f"{vuln.get('title')}:{vuln.get('cve')}"
+                    if not any(v.get('title') == vuln.get('title') and v.get('cve') == vuln.get('cve') 
+                              for v in all_vulns_by_ip[scan_target]):
+                        all_vulns_by_ip[scan_target].append(vuln)
     except Exception as e:
         print(f"Erreur lors de la récupération de l'historique: {e}")
     
     return templates.TemplateResponse("history.html", {
         "request": request,
         "user": current_user,
-        "scans": scans,
-        "count": len(scans)
+        "scans_by_ip": scans_by_ip,
+        "all_vulns_by_ip": all_vulns_by_ip,
+        "count": sum(len(scans) for scans in scans_by_ip.values())
     })
+
+
 
 
 # API Routes
@@ -1122,7 +1172,7 @@ async def debug_scans(current_user: Optional[dict] = Depends(get_current_user)):
     
     scans = []
     try:
-        if mongo_scans_db:
+        if mongo_scans_db is not None:
             async for scan in mongo_scans_db.scans.find().limit(10):
                 # Convertir ObjectId en string
                 scan["_id"] = str(scan["_id"])

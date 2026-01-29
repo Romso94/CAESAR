@@ -169,9 +169,23 @@ def parse_vuln_output(output: str) -> list:
     in_vuln_section = False
     in_port_section = False
     
+    # Motifs à ignorer - messages informatifs sans vulnérabilité réelle
+    ignore_patterns = [
+        "Couldn't find any",
+        "couldn't find any",
+        "No CVSS score available",
+        "no CVSS score",
+        "Not vulnerable",
+        "Vulnerable state is unknown"
+    ]
+    
     for i, line in enumerate(lines):
         line_stripped = line.strip()
         line_orig = line
+        
+        # Ignorer les lignes informatives
+        if any(pattern in line for pattern in ignore_patterns):
+            continue
         
         # Détecter les ports dans la section PORT
         if "PORT" in line and "STATE" in line and "SERVICE" in line:

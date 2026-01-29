@@ -5,6 +5,42 @@
     <title>CAESAR – Historique des scans</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
+        .ip-group {
+            background: rgba(15, 23, 42, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 4px;
+            margin: 1.5rem 0;
+            padding: 1rem;
+            transition: all 0.3s ease;
+        }
+        .ip-group:hover {
+            border-color: rgba(56, 189, 248, 0.5);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        .ip-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid rgba(56, 189, 248, 0.2);
+            margin-bottom: 1rem;
+        }
+        .ip-vulnerabilities {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(216, 59, 1, 0.2);
+            border-radius: 4px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .vulns-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .scans-list {
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+            padding-top: 1rem;
+        }
         .scan-item {
             border-left: 4px solid #0078d4;
             padding: 1rem;
@@ -74,6 +110,27 @@
             font-size: 0.8rem;
             margin: 0.25rem 0.25rem 0.25rem 0;
             border: 1px solid rgba(216, 59, 1, 0.3);
+        }
+        .vuln-item {
+            padding: 0.6rem 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            background: rgba(15, 23, 42, 0.7);
+        }
+        .vuln-title {
+            font-weight: 600;
+            color: #e5e7eb;
+        }
+        .vuln-meta {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        .vuln-desc {
+            font-size: 0.85rem;
+            color: #d1d5db;
+            margin-top: 0.35rem;
         }
         .severity-critical {
             background: rgba(220, 38, 38, 0.1);
@@ -194,7 +251,7 @@
         <section class="agents-section">
             <article class="card">
                 <div class="card-header">
-                    <h2>Derniers scans</h2>
+                    <h2>Historique des scans par machine</h2>
                     <span class="badge">{{ count }} scan{% if count != 1 %}s{% endif %}</span>
                 </div>
 
@@ -206,53 +263,74 @@
                 {% else %}
                 <div class="filter-section">
                     <input type="text" id="searchTarget" placeholder="Chercher par IP ou agent..." />
-                    <div class="sort-controls">
-                        <button onclick="sortScans('date')" class="active" id="sortDate">Plus récents</button>
-                        <button onclick="sortScans('vulns')" id="sortVulns">Plus de vulnérabilités</button>
-                    </div>
                 </div>
 
-                <div id="scansContainer">
-                    {% for scan in scans %}
-                    <div class="scan-item" data-target="{{ scan.scan_target }}" data-agent="{{ scan.agent_id }}" data-vulns="{{ scan.vulnerabilities_count }}">
-                        <div class="scan-header">
-                            <div>
-                                <div class="scan-target">{{ scan.scan_target }}</div>
-                                <div style="font-size: 0.85rem; color: #9ca3af; margin-top: 0.25rem;">Agent: {{ scan.agent_id }}</div>
-                            </div>
-                            <div class="scan-timestamp">{{ scan.timestamp.strftime('%d/%m/%Y à %H:%M:%S') }}</div>
+                <div id="ipGroupsContainer">
+                    {% for ip, scans in scans_by_ip.items() %}
+                    <div class="ip-group" data-ip="{{ ip }}">
+                        <div class="ip-group-header">
+                            <h3 style="color: #38bdf8; margin: 0; font-size: 1.1rem;">{{ ip }}</h3>
+                            <span style="color: #9ca3af; font-size: 0.9rem;">{{ scans|length }} scan{% if scans|length != 1 %}s{% endif %}</span>
                         </div>
 
-                        <div class="scan-metrics">
-                            <div class="metric">
-                                <div class="metric-value" style="color: #38bdf8;">{{ scan.open_ports }}</div>
-                                <div class="metric-label">Ports ouverts</div>
+                        <!-- Section vulnérabilités uniques pour cette IP -->
+                        {% if all_vulns_by_ip.get(ip) %}
+                        <div class="ip-vulnerabilities">
+                            <h4 style="margin: 1rem 0 0.75rem 0; color: #d83b01; font-size: 0.95rem;">Vulnérabilités détectées sur {{ ip }}:</h4>
+                            <div class="vulns-list">
+                                {% for vuln in all_vulns_by_ip[ip] %}
+                                <div class="vuln-item severity-{{ vuln.severity|lower }}">
+                                    <div>
+                                        <span class="vuln-tag severity-{{ vuln.severity|lower }}">
+                                            {{ vuln.severity|upper }}
+                                        </span>
+                                        <span class="vuln-title">{{ vuln.title|truncate(80) }}</span>
+                                    </div>
+                                    <div class="vuln-meta">
+                                        {% if vuln.port %}Port: {{ vuln.port }}{% endif %}
+                                        {% if vuln.cve %}
+                                            {% if vuln.port %} • {% endif %}
+                                            CVE: {{ vuln.cve if vuln.cve is string else vuln.cve|join(', ') }}
+                                        {% endif %}
+                                    </div>
+                                    {% if vuln.description %}
+                                    <div class="vuln-desc">{{ vuln.description|truncate(160) }}</div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
                             </div>
-                            <div class="metric">
-                                <div class="metric-value" style="color: #d83b01;">{{ scan.vulnerabilities_count }}</div>
-                                <div class="metric-label">Vulnérabilités</div>
-                            </div>
-                            <div class="metric">
-                                <div class="metric-value" style="color: #dc2626;">{{ scan.exploits_count }}</div>
-                                <div class="metric-label">Exploits</div>
-                            </div>
-                        </div>
-
-                        {% if scan.vulnerabilities %}
-                        <div class="vulnerabilities-preview">
-                            <h4>🔴 Top vulnérabilités détectées:</h4>
-                            {% for vuln in scan.vulnerabilities %}
-                            <span class="vuln-tag severity-{{ vuln.severity|lower }}">
-                                {{ vuln.title|truncate(50) }}
-                            </span>
-                            {% endfor %}
-                            {% if scan.vulnerabilities_count > 5 %}
-                            <span style="color: #9ca3af; font-size: 0.8rem;">
-                                ... et {{ scan.vulnerabilities_count - 5 }} autres
-                            </span>
-                            {% endif %}
                         </div>
                         {% endif %}
+
+                        <!-- Section scans détaillés -->
+                        <div class="scans-list">
+                            <h4 style="margin: 1.25rem 0 0.75rem 0; color: #9ca3af; font-size: 0.9rem;">Derniers scans:</h4>
+                            {% for scan in scans %}
+                            <div class="scan-item" data-target="{{ scan.scan_target }}" data-agent="{{ scan.agent_id }}">
+                                <div class="scan-header">
+                                    <div>
+                                        <div style="font-size: 0.95rem; color: #d1d5db;">Agent: <span style="color: #38bdf8;">{{ scan.agent_id }}</span></div>
+                                        <div class="scan-timestamp">{{ scan.timestamp.strftime('%d/%m/%Y à %H:%M:%S') }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="scan-metrics">
+                                    <div class="metric">
+                                        <div class="metric-value" style="color: #38bdf8;">{{ scan.open_ports }}</div>
+                                        <div class="metric-label">Ports ouverts</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value" style="color: #d83b01;">{{ scan.vulnerabilities_count }}</div>
+                                        <div class="metric-label">Vulnérabilités</div>
+                                    </div>
+                                    <div class="metric">
+                                        <div class="metric-value" style="color: #dc2626;">{{ scan.exploits_count }}</div>
+                                        <div class="metric-label">Exploits</div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
                     </div>
                     {% endfor %}
                 </div>
@@ -263,44 +341,17 @@
 </div>
 
 <script>
-function sortScans(type) {
-    const container = document.getElementById('scansContainer');
-    if (!container) return;
-
-    const items = Array.from(container.querySelectorAll('.scan-item'));
-    
-    items.sort((a, b) => {
-        if (type === 'date') {
-            return 0; // Maintenir l'ordre original (plus récents en premier)
-        } else if (type === 'vulns') {
-            return parseInt(b.dataset.vulns) - parseInt(a.dataset.vulns);
-        }
-    });
-
-    items.forEach(item => container.appendChild(item));
-
-    // Mettre à jour les boutons actifs
-    document.getElementById('sortDate').classList.remove('active');
-    document.getElementById('sortVulns').classList.remove('active');
-    if (type === 'date') {
-        document.getElementById('sortDate').classList.add('active');
-    } else {
-        document.getElementById('sortVulns').classList.add('active');
-    }
-}
-
 document.getElementById('searchTarget').addEventListener('input', (e) => {
     const query = e.target.value.toLowerCase();
-    const items = document.querySelectorAll('.scan-item');
+    const groups = document.querySelectorAll('.ip-group');
     
-    items.forEach(item => {
-        const target = item.dataset.target.toLowerCase();
-        const agent = item.dataset.agent.toLowerCase();
+    groups.forEach(group => {
+        const ip = group.dataset.ip.toLowerCase();
         
-        if (target.includes(query) || agent.includes(query)) {
-            item.style.display = 'block';
+        if (ip.includes(query)) {
+            group.style.display = 'block';
         } else {
-            item.style.display = 'none';
+            group.style.display = 'none';
         }
     });
 });
