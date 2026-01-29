@@ -436,14 +436,14 @@ async def run_nmap(target: str) -> dict:
                 "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
                 "stderr": stderr_output,
                 "target": target,
-                "scan_target": target
+                "ip_interface": target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_nmap_output(stdout_output, target)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
-        parsed_data["scan_target"] = target  # Ajouter l'IP de la machine cible
+        parsed_data["ip_interface"] = target  # Ajouter l'IP de l'interface cible
         
         return parsed_data
             
@@ -452,7 +452,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except FileNotFoundError:
@@ -460,7 +460,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Nmap n'est pas installé sur le système",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except Exception as e:
@@ -468,7 +468,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": f"Erreur lors du scan : {e}",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
   
@@ -490,6 +490,7 @@ async def agent_loop():
                 # Envoyer un message d'initialisation avec l'IP cible
                 await websocket.send(json.dumps({
                     "status": "agent-init",
+                    "ip_interface": host_ip,
                     "scan_target": host_ip
                 }))
                 print(f"Message d'initialisation envoyé avec IP cible: {host_ip}")
@@ -559,7 +560,7 @@ async def scan_loop(websocket, host_ip):
             await websocket.send(json.dumps({
                 "status": "auto-scan",
                 "target": host_ip,
-                "scan_target": host_ip,
+                "ip_interface": host_ip,
                 "output": combined_output
             }))
 
