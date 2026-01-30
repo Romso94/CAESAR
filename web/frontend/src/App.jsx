@@ -6,7 +6,6 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import ServerConfig from './pages/ServerConfig'
 import ScanResults from './pages/ScanResults'
-import UsersList from './pages/UsersList'
 import Layout from './components/Layout'
 
 function App() {
@@ -86,7 +85,6 @@ function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/server-config" element={<ServerConfig />} />
           <Route path="/scan-results" element={<ScanResults />} />
-          <Route path="/users" element={<UsersList />} />
         </Route>
       </Routes>
     </Router>
