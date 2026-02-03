@@ -66,12 +66,22 @@ def parse_nmap_output(output: str, target: str) -> dict:
             host_info = line.replace("Nmap scan report for", "").strip()
             result["hostname"] = host_info
         
-        # Détecter les ports fermés (résumé)
-        if "closed" in line.lower() and "ports" in line.lower():
+        # Détecter les ports non affichés (fermés ou filtrés)
+        # Format: "Not shown: 994 filtered tcp ports (no-response)"
+        # Format: "Not shown: 993 closed tcp ports (reset)"
+        if "Not shown:" in line and "ports" in line.lower():
             try:
-                closed_count = int(line.split()[0])
-                result["summary"]["closed_ports"] = closed_count
-            except:
+                # Extraire le nombre après "Not shown:"
+                parts = line.split()
+                if len(parts) >= 3:
+                    count = int(parts[2])  # Le nombre est après "Not shown:"
+                    
+                    # Déterminer si ce sont des ports filtrés ou fermés
+                    if "filtered" in line.lower():
+                        result["summary"]["filtered_ports"] = count
+                    elif "closed" in line.lower():
+                        result["summary"]["closed_ports"] = count
+            except (ValueError, IndexError):
                 pass
         
         # Détecter la section des ports
@@ -103,18 +113,15 @@ def parse_nmap_output(output: str, target: str) -> dict:
                     
                     if state == "open":
                         result["summary"]["open_ports"] += 1
-                        # Ajouter seulement les ports ouverts (et filtrés si nécessaire)
                         result["ports"].append(port_data)
                         current_port = port_data
-                    elif state == "closed":
-                        result["summary"]["closed_ports"] += 1
-                        # Ne pas ajouter les ports fermés à la liste
-                        current_port = None
                     elif state == "filtered":
-                        result["summary"]["filtered_ports"] += 1
-                        # Ajouter les ports filtrés aussi
+                        # Ajouter les ports filtrés individuels (pas comptés dans "Not shown")
                         result["ports"].append(port_data)
                         current_port = port_data
+                    else:
+                        # closed ou autres états
+                        current_port = None
         
         # Parser les informations de version/service détaillées
         if current_port and line.startswith("|_"):
@@ -161,8 +168,10 @@ def parse_nmap_output(output: str, target: str) -> dict:
 def parse_vuln_output(output: str) -> list:
     """
     Parse la sortie des scripts NSE vuln de Nmap pour extraire les vulnérabilités.
+    Extrait aussi les CVE du script vulners.
     """
     vulnerabilities = []
+    cves_dict = {}  # Dictionnaire pour stocker les CVE uniques avec leurs scores
     lines = output.split('\n')
     current_vuln = None
     current_port = None
@@ -187,6 +196,39 @@ def parse_vuln_output(output: str) -> list:
         if any(pattern in line for pattern in ignore_patterns):
             continue
         
+        # Parser les CVE du script vulners
+        # Format: |       CVE-2024-38476  9.8     https://vulners.com/cve/CVE-2024-38476
+        if "|" in line and re.search(r'CVE-\d{4}-\d+', line):
+            cves = re.findall(r'CVE-\d{4}-\d+', line)
+            for cve in cves:
+                if cve not in cves_dict:
+                    # Extraire le score CVSS si présent
+                    score_match = re.search(r'(\d+\.\d+|\d+)\s+https', line)
+                    score = score_match.group(1) if score_match else "unknown"
+                    
+                    # Déterminer la sévérité basée sur le score CVSS
+                    severity = "unknown"
+                    try:
+                        score_float = float(score)
+                        if score_float >= 9.0:
+                            severity = "critical"
+                        elif score_float >= 7.0:
+                            severity = "high"
+                        elif score_float >= 4.0:
+                            severity = "medium"
+                        else:
+                            severity = "low"
+                    except:
+                        pass
+                    
+                    cves_dict[cve] = {
+                        "cve": cve,
+                        "score": score,
+                        "severity": severity,
+                        "port": current_port,
+                        "url": re.search(r'https?://[^\s]+', line).group(0) if re.search(r'https?://[^\s]+', line) else ""
+                    }
+        
         # Détecter les ports dans la section PORT
         if "PORT" in line and "STATE" in line and "SERVICE" in line:
             in_port_section = True
@@ -204,7 +246,7 @@ def parse_vuln_output(output: str) -> list:
                         pass
         
         # Détecter le début d'une section de script vuln
-        if "|" in line and ("vuln" in line.lower() or "cve" in line.lower() or "VULNERABLE" in line):
+        if "|" in line and ("vuln" in line.lower() or "VULNERABLE" in line) and not re.search(r'CVE-\d{4}-\d+', line):
             in_vuln_section = True
             
             # Extraire le nom du script (format: | vuln-script-name:)
@@ -278,6 +320,19 @@ def parse_vuln_output(output: str) -> list:
     if current_vuln:
         current_vuln["cve"] = list(set(current_vuln["cve"]))
         vulnerabilities.append(current_vuln)
+    
+    # Ajouter les CVE du script vulners à la liste
+    for cve_id, cve_info in cves_dict.items():
+        vulnerabilities.append({
+            "title": f"CVE {cve_id}",
+            "description": f"Vulnérabilité trouvée par le script vulners",
+            "cve": [cve_id],
+            "severity": cve_info["severity"],
+            "score": cve_info["score"],
+            "port": cve_info["port"],
+            "url": cve_info["url"],
+            "script": "vulners"
+        })
     
     return vulnerabilities
 
@@ -370,13 +425,10 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             
             try:
                 try:
-                    # Diviser les termes de recherche en mots séparés pour searchsploit
-                    search_words = search_term.split()
-                    cmd = ["searchsploit", "-j", "--nocolor"] + search_words
-                    
+                    # Utiliser -t pour éviter que les tirets soient interprétés comme des options
                     result = await asyncio.to_thread(
                         subprocess.run,
-                        cmd,
+                        ["searchsploit", "-j", "-t", "--nocolor", search_term],
                         capture_output=True,
                         text=True,
                         timeout=10
