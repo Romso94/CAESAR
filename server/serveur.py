@@ -774,6 +774,8 @@ async def handler(websocket):
             AGENT_CONNECTIONS[agent_id]["status"] = "offline"
             AGENT_CONNECTIONS[agent_id]["websocket"] = None
             AGENT_CONNECTIONS[agent_id]["last_seen"] = datetime.utcnow()
+            # Effacer les derniers résultats pour réafficher l'état de chargement
+            AGENT_CONNECTIONS[agent_id]["last_nmap"] = None
             print(f"Agent {agent_id} marqué offline")
 
 
@@ -1126,7 +1128,7 @@ async def history_page(request: Request, current_user: Optional[dict] = Depends(
                     "vulnerabilities_count": len(scan.get("vulnerabilities", [])),
                     "exploits_count": len(scan.get("exploits", [])),
                     "open_ports": scan.get("nmap_result", {}).get("summary", {}).get("open_ports", 0),
-                    "vulnerabilities": scan.get("vulnerabilities", [])[:5]  # Top 5 vulnérabilités
+                    "vulnerabilities": scan.get("vulnerabilities", [])
                 })
                 
                 # Collecter toutes les vulnérabilités pour cette IP
@@ -1146,6 +1148,18 @@ async def history_page(request: Request, current_user: Optional[dict] = Depends(
         "all_vulns_by_ip": all_vulns_by_ip,
         "count": sum(len(scans) for scans in scans_by_ip.values())
     })
+
+
+@app.post("/app/history/clear")
+async def clear_history(request: Request, current_user: Optional[dict] = Depends(get_current_user)):
+    """Supprimer l'historique des scans"""
+    if not current_user:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+
+    if mongo_scans_db is not None:
+        await mongo_scans_db.scans.delete_many({})
+
+    return RedirectResponse(url="/app/history", status_code=status.HTTP_303_SEE_OTHER)
 
 
 
