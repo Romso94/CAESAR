@@ -39,7 +39,8 @@ class SecurityAuditReportGenerator:
             nmap_result: Résultats complets du scan Nmap (contient nmap, vulnérabilités, exploits)
         """
         self.agent_id = agent_id
-        self.scan_target = scan_target
+        # Évite d'afficher "None" dans le PDF si la cible n'a pas été configurée
+        self.scan_target = scan_target or "Non configuré"
         self.nmap_result = nmap_result
         self.vulnerabilities = nmap_result.get("vulnerabilities", [])
         self.exploits = nmap_result.get("exploits", [])
@@ -95,26 +96,23 @@ class SecurityAuditReportGenerator:
         
         # Résumé exécutif
         story.extend(self._build_executive_summary(styles))
-        story.append(PageBreak())
+        # Laisser ReportLab paginer naturellement pour éviter de grosses zones blanches
+        story.append(Spacer(1, 0.25*inch))
         
         # Résultats Nmap
         story.extend(self._build_nmap_section(styles))
         story.append(Spacer(1, 0.2*inch))
         
         # Vulnérabilités détectées
-        if self.vulnerabilities:
-            story.append(PageBreak())
-            story.extend(self._build_vulnerabilities_section(styles))
-            story.append(Spacer(1, 0.2*inch))
+        story.extend(self._build_vulnerabilities_section(styles))
+        story.append(Spacer(1, 0.2*inch))
         
         # Exploits disponibles
-        if self.exploits:
-            story.append(PageBreak())
-            story.extend(self._build_exploits_section(styles))
-            story.append(Spacer(1, 0.2*inch))
+        story.extend(self._build_exploits_section(styles))
+        story.append(Spacer(1, 0.2*inch))
         
         # Recommandations
-        story.append(PageBreak())
+        # Pas de saut de page forcé: évite une page quasi vide quand les résultats sont courts
         story.extend(self._build_recommendations_section(styles))
         
         return story
@@ -293,6 +291,16 @@ class SecurityAuditReportGenerator:
             alignment=TA_JUSTIFY,
             spaceAfter=8
         )
+
+        # Si aucune vulnérabilité n'est fournie par l'agent, afficher une section explicite
+        if not self.vulnerabilities:
+            elements.append(Paragraph(
+                "Aucune vulnérabilité n'a été remontée par l'analyse automatique pour cette exécution. "
+                "Cela ne signifie pas nécessairement que la cible est exempte de failles : "
+                "les résultats dépendent des scripts/outils exécutés par l'agent et du niveau de profondeur du scan.",
+                normal_style
+            ))
+            return elements
         
         for i, vuln in enumerate(self.vulnerabilities[:15], 1):  # Limiter à 15 vulnérabilités
             severity = vuln.get("severity", "UNKNOWN").upper()
@@ -350,6 +358,16 @@ class SecurityAuditReportGenerator:
             alignment=TA_JUSTIFY,
             spaceAfter=8
         )
+
+        # Si aucun exploit n'est associé, afficher une section explicite (au lieu de laisser un "trou")
+        if not self.exploits:
+            elements.append(Paragraph(
+                "Aucun exploit n'a été identifié automatiquement (par ex. via corrélation service/version/CVE). "
+                "Pour aller plus loin : enrichir l'inventaire des versions (bannières), vérifier les CVE associées, "
+                "et croiser avec des bases de données (Exploit-DB, Metasploit, etc.).",
+                normal_style
+            ))
+            return elements
         
         for i, exploit in enumerate(self.exploits[:15], 1):  # Limiter à 15 exploits
             exploit_text = f"""
@@ -1201,7 +1219,8 @@ async def generate_security_report(agent_id: str, current_user: Optional[dict] =
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Aucun résultat de scan disponible")
     
     try:
-        scan_target = agent_info.get("ip_interface", "Non configuré")
+        # .get(...) ne renvoie pas le fallback si la valeur existe mais vaut None
+        scan_target = agent_info.get("ip_interface") or "Non configuré"
         
         # Générer le rapport PDF
         report_generator = SecurityAuditReportGenerator(
