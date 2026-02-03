@@ -66,12 +66,22 @@ def parse_nmap_output(output: str, target: str) -> dict:
             host_info = line.replace("Nmap scan report for", "").strip()
             result["hostname"] = host_info
         
-        # Détecter les ports fermés (résumé)
-        if "closed" in line.lower() and "ports" in line.lower():
+        # Détecter les ports non affichés (fermés ou filtrés)
+        # Format: "Not shown: 994 filtered tcp ports (no-response)"
+        # Format: "Not shown: 993 closed tcp ports (reset)"
+        if "Not shown:" in line and "ports" in line.lower():
             try:
-                closed_count = int(line.split()[0])
-                result["summary"]["closed_ports"] = closed_count
-            except:
+                # Extraire le nombre après "Not shown:"
+                parts = line.split()
+                if len(parts) >= 3:
+                    count = int(parts[2])  # Le nombre est après "Not shown:"
+                    
+                    # Déterminer si ce sont des ports filtrés ou fermés
+                    if "filtered" in line.lower():
+                        result["summary"]["filtered_ports"] = count
+                    elif "closed" in line.lower():
+                        result["summary"]["closed_ports"] = count
+            except (ValueError, IndexError):
                 pass
         
         # Détecter la section des ports
@@ -103,18 +113,15 @@ def parse_nmap_output(output: str, target: str) -> dict:
                     
                     if state == "open":
                         result["summary"]["open_ports"] += 1
-                        # Ajouter seulement les ports ouverts (et filtrés si nécessaire)
                         result["ports"].append(port_data)
                         current_port = port_data
-                    elif state == "closed":
-                        result["summary"]["closed_ports"] += 1
-                        # Ne pas ajouter les ports fermés à la liste
-                        current_port = None
                     elif state == "filtered":
-                        result["summary"]["filtered_ports"] += 1
-                        # Ajouter les ports filtrés aussi
+                        # Ajouter les ports filtrés individuels (pas comptés dans "Not shown")
                         result["ports"].append(port_data)
                         current_port = port_data
+                    else:
+                        # closed ou autres états
+                        current_port = None
         
         # Parser les informations de version/service détaillées
         if current_port and line.startswith("|_"):
@@ -161,17 +168,68 @@ def parse_nmap_output(output: str, target: str) -> dict:
 def parse_vuln_output(output: str) -> list:
     """
     Parse la sortie des scripts NSE vuln de Nmap pour extraire les vulnérabilités.
+    Extrait aussi les CVE du script vulners.
     """
     vulnerabilities = []
+    cves_dict = {}  # Dictionnaire pour stocker les CVE uniques avec leurs scores
     lines = output.split('\n')
     current_vuln = None
     current_port = None
     in_vuln_section = False
     in_port_section = False
     
+    # Motifs à ignorer - messages informatifs sans vulnérabilité réelle
+    ignore_patterns = [
+        "Couldn't find any",
+        "couldn't find any",
+        "No CVSS score available",
+        "no CVSS score",
+        "Not vulnerable",
+        "Vulnerable state is unknown"
+    ]
+    
     for i, line in enumerate(lines):
         line_stripped = line.strip()
         line_orig = line
+        
+        # Ignorer les lignes informatives
+        if any(pattern in line for pattern in ignore_patterns):
+            continue
+        
+        # Parser les CVE du script vulners
+        # Format: |       CVE-2024-38476  9.8     https://vulners.com/cve/CVE-2024-38476
+        if "|" in line and re.search(r'CVE-\d{4}-\d+', line):
+            cves = re.findall(r'CVE-\d{4}-\d+', line)
+            for cve in cves:
+                if cve not in cves_dict:
+                    # Extraire le score CVSS si présent
+                    score_match = re.search(r'(\d+\.\d+|\d+)\s+https', line)
+                    score = score_match.group(1) if score_match else "unknown"
+                    
+                    # Déterminer la sévérité basée sur le score CVSS
+                    severity = "unknown"
+                    try:
+                        score_float = float(score)
+                        if score_float >= 9.0:
+                            severity = "critical"
+                        elif score_float >= 7.0:
+                            severity = "high"
+                        elif score_float >= 4.0:
+                            severity = "medium"
+                        else:
+                            severity = "low"
+                    except:
+                        pass
+                    
+                    cves_dict[cve] = {
+                        "cve": cve,
+                        "score": score,
+                        "severity": severity,
+                        "port": current_port,
+                        "url": re.search(r'https?://[^\s]+', line).group(0) if re.search(r'https?://[^\s]+', line) else "",
+                        "source": "vulners",
+                        "description": ""  # Sera complété avec d'autres infos si disponibles
+                    }
         
         # Détecter les ports dans la section PORT
         if "PORT" in line and "STATE" in line and "SERVICE" in line:
@@ -190,7 +248,7 @@ def parse_vuln_output(output: str) -> list:
                         pass
         
         # Détecter le début d'une section de script vuln
-        if "|" in line and ("vuln" in line.lower() or "cve" in line.lower() or "VULNERABLE" in line):
+        if "|" in line and ("vuln" in line.lower() or "VULNERABLE" in line) and not re.search(r'CVE-\d{4}-\d+', line):
             in_vuln_section = True
             
             # Extraire le nom du script (format: | vuln-script-name:)
@@ -265,6 +323,23 @@ def parse_vuln_output(output: str) -> list:
         current_vuln["cve"] = list(set(current_vuln["cve"]))
         vulnerabilities.append(current_vuln)
     
+    # Ajouter les CVE du script vulners à la liste
+    for cve_id, cve_info in cves_dict.items():
+        vulnerabilities.append({
+            "title": cve_id,  # Juste le CVE-XXXX, pas "CVE CVE-XXXX"
+            "description": f"Score CVSS: {cve_info['score']} | {cve_info.get('description', 'Trouvé par vulners')}",
+            "cve": [cve_id],
+            "severity": cve_info["severity"],
+            "score": cve_info["score"],
+            "port": cve_info["port"],
+            "url": cve_info["url"],
+            "script": "vulners",
+            "cve_links": {
+                "vulners": cve_info["url"],
+                "cve_detail": f"https://cve.mitre.org/cgi-bin/cvename.cgi?name={cve_id}"
+            }
+        })
+    
     return vulnerabilities
 
 async def run_nmap_vuln(target: str, ports: list = None) -> dict:
@@ -336,6 +411,7 @@ async def run_searchsploit(nmap_result: dict) -> dict:
     Utilise searchsploit pour chercher des exploits basés sur les services/versions détectés par Nmap.
     """
     exploits = []
+    raw_results = []
     
     try:
         # Extraire les services et versions des ports ouverts
@@ -349,11 +425,16 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             # Construire la requête searchsploit
             search_term = f"{service} {version}".strip()
             
+            # Ne lancer searchsploit que si on a un terme de recherche valide
+            if not search_term:
+                continue
+            
             try:
                 try:
+                    # Utiliser -t pour éviter que les tirets soient interprétés comme des options
                     result = await asyncio.to_thread(
                         subprocess.run,
-                        ["searchsploit", "-j", "--nocolor", search_term],
+                        ["searchsploit", "-j", "-t", "--nocolor", search_term],
                         capture_output=True,
                         text=True,
                         timeout=10
@@ -361,6 +442,13 @@ async def run_searchsploit(nmap_result: dict) -> dict:
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     # searchsploit non disponible ou timeout
                     continue
+
+                raw_results.append({
+                    "search_term": search_term,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout if result.stdout else "",
+                    "stderr": result.stderr if result.stderr else ""
+                })
                 
                 if result.returncode == 0 and result.stdout:
                     try:
@@ -368,15 +456,31 @@ async def run_searchsploit(nmap_result: dict) -> dict:
                         exploit_data = json.loads(result.stdout)
                         if "RESULTS_EXPLOIT" in exploit_data and exploit_data["RESULTS_EXPLOIT"]:
                             for exploit in exploit_data["RESULTS_EXPLOIT"]:
+                                # Extraire les CVE de la chaîne "Codes" (format: "CVE-2017-3169, CVE-2017-...")
+                                cve_codes = exploit.get("Codes", "")
+                                cves = []
+                                if cve_codes:
+                                    cves = [cve.strip() for cve in cve_codes.split(",") if "CVE" in cve]
+                                
+                                # Créer les liens pour chaque CVE
+                                cve_links = {}
+                                for cve in cves:
+                                    cve_links[cve] = {
+                                        "cve_mitre": f"https://cve.mitre.org/cgi-bin/cvename.cgi?name={cve}",
+                                        "vulners": f"https://vulners.com/cve/{cve}"
+                                    }
+                                
                                 exploits.append({
                                     "title": exploit.get("Title", ""),
                                     "edb_id": exploit.get("EDB-ID", ""),
-                                    "cve": exploit.get("Codes", ""),
+                                    "cve": cves,  # Liste de CVE
+                                    "cve_links": cve_links,  # Liens vers les CVE
                                     "platform": exploit.get("Platform", ""),
                                     "type": exploit.get("Type", ""),
                                     "port": port_data.get("port"),
                                     "service": service,
-                                    "version": version
+                                    "version": version,
+                                    "exploit_url": f"https://www.exploit-db.com/exploits/{exploit.get('EDB-ID', '')}" if exploit.get("EDB-ID") else ""
                                 })
                     except json.JSONDecodeError:
                         # Si le parsing JSON échoue, ignorer
@@ -390,7 +494,8 @@ async def run_searchsploit(nmap_result: dict) -> dict:
         return {
             "error": False,
             "exploits": exploits,
-            "count": len(exploits)
+            "count": len(exploits),
+            "raw_output": raw_results
         }
         
     except Exception as e:
@@ -398,7 +503,8 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             "error": True,
             "message": f"Erreur lors de la recherche d'exploits : {e}",
             "exploits": [],
-            "count": 0
+            "count": 0,
+            "raw_output": raw_results
         }
 
 async def run_nmap(target: str) -> dict:
@@ -436,14 +542,15 @@ async def run_nmap(target: str) -> dict:
                 "message": f"Erreur lors de l'exécution de Nmap (code {result.returncode})",
                 "stderr": stderr_output,
                 "target": target,
-                "scan_target": target
+                "ip_interface": target
             }
         
         # Parser la sortie texte et la structurer
         parsed_data = parse_nmap_output(stdout_output, target)
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
-        parsed_data["scan_target"] = target  # Ajouter l'IP de la machine cible
+        parsed_data["ip_interface"] = target  # Ajouter l'IP de l'interface cible
+        parsed_data["raw_output"] = stdout_output
         
         return parsed_data
             
@@ -452,7 +559,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Timeout lors du scan Nmap (dépassement de 60 secondes)",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except FileNotFoundError:
@@ -460,7 +567,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": "Nmap n'est pas installé sur le système",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
     except Exception as e:
@@ -468,7 +575,7 @@ async def run_nmap(target: str) -> dict:
             "error": True,
             "message": f"Erreur lors du scan : {e}",
             "target": target,
-            "scan_target": target,
+            "ip_interface": target,
             "format": "error"
         }
   
@@ -484,12 +591,18 @@ async def agent_loop():
     while True:
         try:
             print(f"Connexion à {uri}...")
-            async with websockets.connect(uri) as websocket:
+            async with websockets.connect(
+                uri,
+                ping_interval=30,  # Envoyer un ping toutes les 30 secondes
+                ping_timeout=10,   # Attendre 10 secondes une réponse au ping
+                close_timeout=10   # Timeout pour fermer la connexion
+            ) as websocket:
                 print("Connecté au serveur.")
                 
                 # Envoyer un message d'initialisation avec l'IP cible
                 await websocket.send(json.dumps({
                     "status": "agent-init",
+                    "ip_interface": host_ip,
                     "scan_target": host_ip
                 }))
                 print(f"Message d'initialisation envoyé avec IP cible: {host_ip}")
@@ -534,6 +647,8 @@ async def scan_loop(websocket, host_ip):
             print(f"Scan automatique : {host_ip}")
             # 1. Scan Nmap initial
             output_nmap = await run_nmap(host_ip)
+            if output_nmap.get("raw_output"):
+                print("Résultat brut Nmap:\n" + output_nmap["raw_output"])
             
             # 2. Scan de vulnérabilités avec NSE vuln si le scan Nmap a réussi
             vulnerabilities_result = {"error": True, "vulnerabilities": [], "count": 0}
@@ -542,12 +657,29 @@ async def scan_loop(websocket, host_ip):
                 # Extraire les ports ouverts pour le scan vuln
                 open_ports = [p["port"] for p in output_nmap.get("ports", []) if p.get("state") == "open"]
                 vulnerabilities_result = await run_nmap_vuln(host_ip, open_ports if open_ports else None)
+                if vulnerabilities_result.get("raw_output"):
+                    print("Résultat brut Nmap NSE vuln:\n" + vulnerabilities_result["raw_output"])
             
             # 3. Recherche d'exploits avec searchsploit (optionnel)
             exploits_result = {"error": True, "exploits": [], "count": 0}
             if not output_nmap.get("error"):
                 print("Recherche d'exploits avec searchsploit...")
                 exploits_result = await run_searchsploit(output_nmap)
+                raw_searchsploit = exploits_result.get("raw_output", [])
+                if raw_searchsploit:
+                    print("Résultat brut searchsploit:")
+                    for raw in raw_searchsploit:
+                        search_term = raw.get('search_term', '')
+                        stdout_text = raw.get("stdout") or ""
+                        stderr_text = raw.get("stderr") or ""
+                        
+                        # N'afficher que si le résultat contient des données valides
+                        # (pas juste l'aide de searchsploit)
+                        if stdout_text and "Options" not in stdout_text[:200]:
+                            print(f"--- searchsploit {search_term} ---")
+                            print(stdout_text)
+                        if stderr_text:
+                            print(f"STDERR: {stderr_text}")
             
             # 4. Combiner tous les résultats
             combined_output = output_nmap.copy()
@@ -559,7 +691,7 @@ async def scan_loop(websocket, host_ip):
             await websocket.send(json.dumps({
                 "status": "auto-scan",
                 "target": host_ip,
-                "scan_target": host_ip,
+                "ip_interface": host_ip,
                 "output": combined_output
             }))
 
