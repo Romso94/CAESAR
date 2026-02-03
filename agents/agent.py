@@ -364,11 +364,19 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             # Construire la requête searchsploit
             search_term = f"{service} {version}".strip()
             
+            # Ne lancer searchsploit que si on a un terme de recherche valide
+            if not search_term:
+                continue
+            
             try:
                 try:
+                    # Diviser les termes de recherche en mots séparés pour searchsploit
+                    search_words = search_term.split()
+                    cmd = ["searchsploit", "-j", "--nocolor"] + search_words
+                    
                     result = await asyncio.to_thread(
                         subprocess.run,
-                        ["searchsploit", "-j", "--nocolor", search_term],
+                        cmd,
                         capture_output=True,
                         text=True,
                         timeout=10
@@ -587,13 +595,17 @@ async def scan_loop(websocket, host_ip):
                 if raw_searchsploit:
                     print("Résultat brut searchsploit:")
                     for raw in raw_searchsploit:
-                        print(f"--- searchsploit {raw.get('search_term', '')} ---")
+                        search_term = raw.get('search_term', '')
                         stdout_text = raw.get("stdout") or ""
                         stderr_text = raw.get("stderr") or ""
-                        if stdout_text:
+                        
+                        # N'afficher que si le résultat contient des données valides
+                        # (pas juste l'aide de searchsploit)
+                        if stdout_text and "Options" not in stdout_text[:200]:
+                            print(f"--- searchsploit {search_term} ---")
                             print(stdout_text)
                         if stderr_text:
-                            print(stderr_text)
+                            print(f"STDERR: {stderr_text}")
             
             # 4. Combiner tous les résultats
             combined_output = output_nmap.copy()
