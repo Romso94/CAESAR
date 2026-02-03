@@ -194,13 +194,13 @@ function updateCommand() {
         installCommand = `# Installer Git et Docker Desktop (exécuter en tant qu'administrateur)\nwinget install Git.Git Docker.DockerDesktop`;
         
         // Commande de déploiement Windows (PowerShell)
-        deployCommand = `$repoDir = Join-Path $env:USERPROFILE "CAESAR"; New-Item -ItemType Directory -Force -Path $repoDir | Out-Null; if (Test-Path (Join-Path $repoDir ".git")) { Remove-Item -Recurse -Force $repoDir }; git clone -b dev-agent https://github.com/Romso94/CAESAR.git $repoDir; Set-Location (Join-Path $repoDir "agents"); $env:SERVER_HOST="${serverHost}"; $env:WEBSOCKET_PORT="${websocketPort}"; $env:WEBSOCKET_SCHEME="${websocketScheme}"; $env:IP_INTERFACE="${ipInterface}"; $env:SCAN_INTERVAL="${scanInterval}"; docker-compose up -d`;
+        deployCommand = `$repoDir = Join-Path $env:USERPROFILE "CAESAR"; New-Item -ItemType Directory -Force -Path $repoDir | Out-Null; if (Test-Path (Join-Path $repoDir ".git")) { Remove-Item -Recurse -Force $repoDir }; git clone -b dev-agent https://github.com/Romso94/CAESAR.git $repoDir; Set-Location (Join-Path $repoDir "agents"); $env:SERVER_HOST="${serverHost}"; $env:WEBSOCKET_PORT="${websocketPort}"; $env:WEBSOCKET_SCHEME="${websocketScheme}"; $env:IP_INTERFACE="${ipInterface}"; $env:SCAN_INTERVAL="${scanInterval}"; docker-compose build --no-cache; docker-compose up -d`;
     } else {
         // Commande d'installation Linux (Bash)
         installCommand = `# Installer Git, Docker et Docker Compose\nsudo apt-get update && sudo apt-get install -y git docker.io docker-compose && sudo systemctl start docker && sudo systemctl enable docker`;
         
         // Commande de déploiement Linux (Bash)
-        deployCommand = `git clone -b dev-agent https://github.com/Romso94/CAESAR.git && cd CAESAR/agents && IP_INTERFACE="${ipInterface}" SERVER_HOST="${serverHost}" WEBSOCKET_PORT="${websocketPort}" WEBSOCKET_SCHEME="${websocketScheme}" SCAN_INTERVAL="${scanInterval}" docker-compose up -d`;
+        deployCommand = `git clone -b dev-agent https://github.com/Romso94/CAESAR.git && cd CAESAR/agents && docker-compose build --no-cache && IP_INTERFACE="${ipInterface}" SERVER_HOST="${serverHost}" WEBSOCKET_PORT="${websocketPort}" WEBSOCKET_SCHEME="${websocketScheme}" SCAN_INTERVAL="${scanInterval}" docker-compose up -d`;
     }
     
     document.getElementById('install-command').value = installCommand;
