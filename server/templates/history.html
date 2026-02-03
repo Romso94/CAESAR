@@ -244,6 +244,9 @@
                 <p class="main-subtitle">Consultez les derniers scans et vulnérabilités détectées.</p>
             </div>
             <div class="header-actions">
+                <form method="post" action="/app/history/clear" onsubmit="return confirm('Supprimer tout l\'historique des scans ?');" style="display: inline;">
+                    <button type="submit" class="btn btn-ghost" style="margin-right: 0.5rem;">Vider l'historique</button>
+                </form>
                 <a href="/logout" class="btn btn-secondary">Déconnexion</a>
             </div>
         </header>
@@ -328,6 +331,34 @@
                                         <div class="metric-label">Exploits</div>
                                     </div>
                                 </div>
+
+                                {% if scan.vulnerabilities and scan.vulnerabilities|length > 0 %}
+                                <div class="vulnerabilities-preview">
+                                    <h4>Vulnérabilités du scan</h4>
+                                    <div class="vulns-list">
+                                        {% for vuln in scan.vulnerabilities %}
+                                        <div class="vuln-item severity-{{ vuln.severity|lower }}">
+                                            <div>
+                                                <span class="vuln-tag severity-{{ vuln.severity|lower }}">
+                                                    {{ vuln.severity|upper }}
+                                                </span>
+                                                <span class="vuln-title">{{ vuln.title|truncate(80) }}</span>
+                                            </div>
+                                            <div class="vuln-meta">
+                                                {% if vuln.port %}Port: {{ vuln.port }}{% endif %}
+                                                {% if vuln.cve %}
+                                                    {% if vuln.port %} • {% endif %}
+                                                    CVE: {{ vuln.cve if vuln.cve is string else vuln.cve|join(', ') }}
+                                                {% endif %}
+                                            </div>
+                                            {% if vuln.description %}
+                                            <div class="vuln-desc">{{ vuln.description|truncate(160) }}</div>
+                                            {% endif %}
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
                             </div>
                             {% endfor %}
                         </div>

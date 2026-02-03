@@ -384,7 +384,7 @@
                     <div style="margin-top: 0.75rem;">
                         <strong style="color: #ffffff;">CVE :</strong>
                         {% for cve in vuln.cve %}
-                        <span class="cve-badge">{{ cve }}</span>
+                        <a class="cve-badge" href="https://nvd.nist.gov/vuln/detail/{{ cve }}" target="_blank" rel="noopener noreferrer">{{ cve }}</a>
                         {% endfor %}
                     </div>
                     {% endif %}
