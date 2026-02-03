@@ -226,7 +226,9 @@ def parse_vuln_output(output: str) -> list:
                         "score": score,
                         "severity": severity,
                         "port": current_port,
-                        "url": re.search(r'https?://[^\s]+', line).group(0) if re.search(r'https?://[^\s]+', line) else ""
+                        "url": re.search(r'https?://[^\s]+', line).group(0) if re.search(r'https?://[^\s]+', line) else "",
+                        "source": "vulners",
+                        "description": ""  # Sera complété avec d'autres infos si disponibles
                     }
         
         # Détecter les ports dans la section PORT
@@ -324,14 +326,18 @@ def parse_vuln_output(output: str) -> list:
     # Ajouter les CVE du script vulners à la liste
     for cve_id, cve_info in cves_dict.items():
         vulnerabilities.append({
-            "title": f"CVE {cve_id}",
-            "description": f"Vulnérabilité trouvée par le script vulners",
+            "title": cve_id,  # Juste le CVE-XXXX, pas "CVE CVE-XXXX"
+            "description": f"Score CVSS: {cve_info['score']} | {cve_info.get('description', 'Trouvé par vulners')}",
             "cve": [cve_id],
             "severity": cve_info["severity"],
             "score": cve_info["score"],
             "port": cve_info["port"],
             "url": cve_info["url"],
-            "script": "vulners"
+            "script": "vulners",
+            "cve_links": {
+                "vulners": cve_info["url"],
+                "cve_detail": f"https://cve.mitre.org/cgi-bin/cvename.cgi?name={cve_id}"
+            }
         })
     
     return vulnerabilities
@@ -450,15 +456,31 @@ async def run_searchsploit(nmap_result: dict) -> dict:
                         exploit_data = json.loads(result.stdout)
                         if "RESULTS_EXPLOIT" in exploit_data and exploit_data["RESULTS_EXPLOIT"]:
                             for exploit in exploit_data["RESULTS_EXPLOIT"]:
+                                # Extraire les CVE de la chaîne "Codes" (format: "CVE-2017-3169, CVE-2017-...")
+                                cve_codes = exploit.get("Codes", "")
+                                cves = []
+                                if cve_codes:
+                                    cves = [cve.strip() for cve in cve_codes.split(",") if "CVE" in cve]
+                                
+                                # Créer les liens pour chaque CVE
+                                cve_links = {}
+                                for cve in cves:
+                                    cve_links[cve] = {
+                                        "cve_mitre": f"https://cve.mitre.org/cgi-bin/cvename.cgi?name={cve}",
+                                        "vulners": f"https://vulners.com/cve/{cve}"
+                                    }
+                                
                                 exploits.append({
                                     "title": exploit.get("Title", ""),
                                     "edb_id": exploit.get("EDB-ID", ""),
-                                    "cve": exploit.get("Codes", ""),
+                                    "cve": cves,  # Liste de CVE
+                                    "cve_links": cve_links,  # Liens vers les CVE
                                     "platform": exploit.get("Platform", ""),
                                     "type": exploit.get("Type", ""),
                                     "port": port_data.get("port"),
                                     "service": service,
-                                    "version": version
+                                    "version": version,
+                                    "exploit_url": f"https://www.exploit-db.com/exploits/{exploit.get('EDB-ID', '')}" if exploit.get("EDB-ID") else ""
                                 })
                     except json.JSONDecodeError:
                         # Si le parsing JSON échoue, ignorer
