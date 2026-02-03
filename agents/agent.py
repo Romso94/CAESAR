@@ -350,6 +350,7 @@ async def run_searchsploit(nmap_result: dict) -> dict:
     Utilise searchsploit pour chercher des exploits basés sur les services/versions détectés par Nmap.
     """
     exploits = []
+    raw_results = []
     
     try:
         # Extraire les services et versions des ports ouverts
@@ -375,6 +376,13 @@ async def run_searchsploit(nmap_result: dict) -> dict:
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     # searchsploit non disponible ou timeout
                     continue
+
+                raw_results.append({
+                    "search_term": search_term,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout if result.stdout else "",
+                    "stderr": result.stderr if result.stderr else ""
+                })
                 
                 if result.returncode == 0 and result.stdout:
                     try:
@@ -404,7 +412,8 @@ async def run_searchsploit(nmap_result: dict) -> dict:
         return {
             "error": False,
             "exploits": exploits,
-            "count": len(exploits)
+            "count": len(exploits),
+            "raw_output": raw_results
         }
         
     except Exception as e:
@@ -412,7 +421,8 @@ async def run_searchsploit(nmap_result: dict) -> dict:
             "error": True,
             "message": f"Erreur lors de la recherche d'exploits : {e}",
             "exploits": [],
-            "count": 0
+            "count": 0,
+            "raw_output": raw_results
         }
 
 async def run_nmap(target: str) -> dict:
@@ -458,6 +468,7 @@ async def run_nmap(target: str) -> dict:
         parsed_data["error"] = False
         parsed_data["format"] = "structured"
         parsed_data["ip_interface"] = target  # Ajouter l'IP de l'interface cible
+        parsed_data["raw_output"] = stdout_output
         
         return parsed_data
             
@@ -498,7 +509,12 @@ async def agent_loop():
     while True:
         try:
             print(f"Connexion à {uri}...")
-            async with websockets.connect(uri) as websocket:
+            async with websockets.connect(
+                uri,
+                ping_interval=30,  # Envoyer un ping toutes les 30 secondes
+                ping_timeout=10,   # Attendre 10 secondes une réponse au ping
+                close_timeout=10   # Timeout pour fermer la connexion
+            ) as websocket:
                 print("Connecté au serveur.")
                 
                 # Envoyer un message d'initialisation avec l'IP cible
@@ -549,6 +565,8 @@ async def scan_loop(websocket, host_ip):
             print(f"Scan automatique : {host_ip}")
             # 1. Scan Nmap initial
             output_nmap = await run_nmap(host_ip)
+            if output_nmap.get("raw_output"):
+                print("Résultat brut Nmap:\n" + output_nmap["raw_output"])
             
             # 2. Scan de vulnérabilités avec NSE vuln si le scan Nmap a réussi
             vulnerabilities_result = {"error": True, "vulnerabilities": [], "count": 0}
@@ -557,12 +575,25 @@ async def scan_loop(websocket, host_ip):
                 # Extraire les ports ouverts pour le scan vuln
                 open_ports = [p["port"] for p in output_nmap.get("ports", []) if p.get("state") == "open"]
                 vulnerabilities_result = await run_nmap_vuln(host_ip, open_ports if open_ports else None)
+                if vulnerabilities_result.get("raw_output"):
+                    print("Résultat brut Nmap NSE vuln:\n" + vulnerabilities_result["raw_output"])
             
             # 3. Recherche d'exploits avec searchsploit (optionnel)
             exploits_result = {"error": True, "exploits": [], "count": 0}
             if not output_nmap.get("error"):
                 print("Recherche d'exploits avec searchsploit...")
                 exploits_result = await run_searchsploit(output_nmap)
+                raw_searchsploit = exploits_result.get("raw_output", [])
+                if raw_searchsploit:
+                    print("Résultat brut searchsploit:")
+                    for raw in raw_searchsploit:
+                        print(f"--- searchsploit {raw.get('search_term', '')} ---")
+                        stdout_text = raw.get("stdout") or ""
+                        stderr_text = raw.get("stderr") or ""
+                        if stdout_text:
+                            print(stdout_text)
+                        if stderr_text:
+                            print(stderr_text)
             
             # 4. Combiner tous les résultats
             combined_output = output_nmap.copy()
